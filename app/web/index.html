@@ -703,6 +703,25 @@
           <div class="keybox-list mt" id="keyboxList"></div>
           <p class="hint">公共资源库＝厂商常用密钥表；用户密钥库＝自己新增/导入；读卡历史库＝每次读卡破解命中的 UID 与密钥。</p>
         </div>
+        <div class="card glass mt">
+          <div class="card-head"><h2>常见问题</h2><span class="badge">FAQ</span></div>
+          <details class="faq"><summary>云端破解为什么有时候解不出来？</summary>
+            <p>云端密钥库（keygen）是按卡号 UID 收录的。收录过的卡会返回几百把候选密钥，逐把验证很快就能命中；<b>没收录的卡查不到候选</b>，就需要用 staticnest / hardnested 等需要已知密钥的算法。</p></details>
+          <details class="faq"><summary>为什么读卡慢、写卡快？</summary>
+            <p>读卡要逐块采集 + 云端返回几百把候选逐把验证（官方也是分批试），所以慢；写卡用的是 <b>0x16 极速档</b>，写完立即返回，所以快。</p></details>
+          <details class="faq"><summary>云端 token 会过期吗？</summary>
+            <p>会。recovery 接口要的是微信登录态 token，约 1 天过期。破解页点「从微信小程序自动获取 token」可一键重新抓取填好；不填时云端会跳过、降级本地算法。</p></details>
+          <details class="faq"><summary>写卡提示里的「滚动码」是什么？</summary>
+            <p>有些小区卡每次刷卡会改掉某一两个块（滚动码）。直接克隆可能导致门禁失效。用卡夹页的「数据对比」可以看出是不是滚动码卡。</p></details>
+          <details class="faq"><summary>格式化 / 封卡会不会有风险？</summary>
+            <p><b>都会，且不可逆。</b>格式化会清空整卡数据（密钥块写回厂商默认值）；封卡（0x17）/ 锁卡（0x23）执行后卡片不能再改写。两者都要勾选「我已知晓」并二次确认。</p></details>
+          <details class="faq"><summary>为什么写卡总是失败？</summary>
+            <p>先确认密钥已通过认证（0x06/0x09，不是那个空命令 0x0A）。密钥错时写块必然失败。可用密码库的「批量验证」先筛出正确密钥，再写卡。</p></details>
+          <details class="faq"><summary>固件升级为什么只让下载不让刷？</summary>
+            <p>刷写固件有变砖风险，且官方刷写协议（0x90/0x91）尚未完全逆清。当前只提供「检查固件」和「下载固件」留档，不做刷写。</p></details>
+          <details class="faq"><summary>HID 卡 / ID 卡能破解吗？</summary>
+            <p>不能，也不需要。ID 卡（125kHz）和 HID 卡是低频卡，没有 Mifare 的扇区密钥体系，寻卡即可读出卡号，不存在"破解密钥"这回事。</p></details>
+        </div>
       </section>
 
     </div>

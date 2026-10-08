@@ -1097,3 +1097,12 @@ body.light .toast { background: rgba(255, 255, 255, .86); color: #14161c; }
 }
 .d3-glare { opacity: .5; }
 .d3-led  { box-shadow: 0 0 8px rgba(48, 209, 88, .85), 0 0 16px rgba(48, 209, 88, .45); }
+
+/* ---------------------------------------------------------- 常见问题 */
+details.faq { border-bottom: 1px solid rgba(255,255,255,.07); padding: 10px 2px; }
+details.faq:last-child { border-bottom: none; }
+details.faq summary { cursor: pointer; font-weight: 600; font-size: 13px; list-style: none; }
+details.faq summary::-webkit-details-marker { display: none; }
+details.faq summary::before { content: "▸ "; color: var(--accent); }
+details.faq[open] summary::before { content: "▾ "; }
+details.faq p { margin: 8px 0 2px 16px; font-size: 12.5px; line-height: 1.7; color: var(--ink-2); }
