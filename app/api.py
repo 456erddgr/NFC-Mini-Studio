@@ -605,10 +605,25 @@ class Api:
         """B1 · 0x26 读 ID 卡 / 低频卡，返回卡号与频率档位（125/250/375/500 kHz）。"""
         def work():
             info = self.device.read_id_card()
+            # HID_ENABLE：低频卡里 HID 卡用 card_type 标识位宽（HID 26bit…37bit），
+            # 开关打开时把位宽解出来给界面显示，关闭时只报卡号/频率。
+            hid_on = bool(self.settings.data.get("hid_enable"))
+            info["hid_enabled"] = hid_on
+            if hid_on:
+                try:
+                    ct = int(info.get("card_type_id") or 0)
+                    info["hid_bit_width"] = {1: 26, 2: 27, 3: 28, 4: 29, 5: 30,
+                                             6: 31, 7: 32, 8: 33, 9: 34, 10: 35,
+                                             11: 36, 12: 37}.get(ct, 0)
+                    info["hid_text"] = (f"HID {info['hid_bit_width']}bit"
+                                        if info.get("hid_bit_width") else "非 HID / 位宽未知")
+                except Exception:
+                    info["hid_text"] = "HID 解析失败"
             self._on_device_log(
                 "ok", f"读 ID 卡：{info['id_hex']} · 频率 {info['freq']} · "
                       f"{info['card_type']} · 卡代码 {info['card_code']} · "
-                      f"设施码 {info['facility_code']}")
+                      f"设施码 {info['facility_code']}"
+                      + (f" · {info.get('hid_text')}" if hid_on else ""))
             return info
         return self._guard(work)
 

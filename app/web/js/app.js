@@ -1767,6 +1767,7 @@ function fillIdCard(info) {
   setText('#idCode', String(info.card_code != null ? info.card_code : '—'));
   setText('#idFacility', String(info.facility_code != null ? info.facility_code : '—'));
   setText('#idRaw', info.raw || '—');
+  setText('#idHid', info.hid_enabled ? (info.hid_text || '—') : '（HID 开关未开启）');
   setBadge('#idCardBadge', info.freq || '已读取', 'ok');
 }
 
