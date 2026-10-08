@@ -170,3 +170,48 @@ timeout = 600000 ms（10 分钟）
 **结论**：GTU 没有独立命令码，复用 0x16/0x18 写块 + 0x0C 写卡号；
 桌面端已有 `write_block_mode` / `write_card_no`，只需在写卡界面加 GTU 档位选项即可，
 不需要新协议。UFUID 封卡已实现（`lock_ufuid`）。
+
+## 十三、解码算法路由表（逆向自 decode 主循环 @887750）
+
+小程序按卡型/状态把算法名分派到不同分支：
+
+```
+"pang"        → 全加密卡（国产全加密）
+"mfoc"        → 全加密（mfoc 变体；失败 → hardnested）
+"staticnest"  → 无漏洞卡
+"staticnest_v1" → 无漏洞卡（v1 固件）
+"hardnested"  → 兼容卡 / 3 代无漏洞卡
+"network"     → 联网计算（按 UID 查密钥库）
+"history"     → 历史记录复用（读卡历史库）
+"fm11rf08s"   → 三代卡（复旦微 FM11RF08S）
+```
+
+**卡型判定 → 算法选择的逻辑**（@880746 / @882654 / @883239）：
+1. 有已知密钥的扇区 → `mfoc`（或 `pang`，取决于是否有半加密密钥 `semiEncryptedKeyA/B`）
+2. 未命中 → 进入「随机数采集」分支
+3. `is_bug` 检测结果：v2 → `staticnest`，v1 → `staticnest_v1`
+4. `mfoc` 返回 201 → 切 `hardnested`
+5. `mfoc` 返回 202 → 三代无漏洞卡 → `network`
+6. `pang` 采集失败 → `network`（"国产全加密卡，是否联网计算密码？"）
+
+**已挖到的命令码**：
+```
+0x20 hardnested 采集（多包 256）
+0x30 half_decode 半解
+0x32 staticnest 无漏洞卡
+0x34 侦测读卡 / 采集相关
+0x38 staticnest 变体 + 自动识卡（同码靠 DATA 长度区分）
+```
+`pang` / `mfoc` / `fm11rf08s` 的采集命令码尚未定位（它们在 decode 主循环的 case 8/10/22 分支里）。
+
+## 十四、pang 采集数据结构（已解析）
+响应帧（字符串数组，元素形如 "0x2a"）：
+```
+uid      = e[3:7]    （4 字节）
+nt       = e[7:11]   （4 字节）
+nr_1     = e[11:15]  （4 字节）
+ks_list_0 = e[15]    （1 字节）
+ks_list_1 = e[16]    （1 字节）
+...（ks_list 可持续到 e[22]）
+```
+云端 `/recovery/pang` 请求体：`{uid, nt, ks_list_1..3, nr1..3}`。
