@@ -2522,7 +2522,8 @@ async function doCloudCrack() {
     setLed('busy');
     setBadge('#crackStateBadge', '云端破解中', 'info live');
     log('云端破解：keygen 查询 → 批量验证…', 'info');
-    const r = await api('auto_crack_chain', +($('#setCrackSector') ? $('#setCrackSector').value : 0) || 0, '');
+    const algo = ($('#decodeAlgo') || {}).value || 'auto';
+    const r = await api('auto_crack_chain', +($('#setCrackSector') ? $('#setCrackSector').value : 0) || 0, '', algo);
     const key = r.key || (r.keys && r.keys[0]) || '';
     toast(key ? `破解成功：密钥 ${key}` : '未命中密钥', key ? 'ok' : 'warn');
     log(`云端破解结果：${key || '未命中'}（候选 ${r.candidates || 0} 把，试了 ${r.tried || 0} 把，来源 ${r.source || ''}）`, key ? 'ok' : 'warn');

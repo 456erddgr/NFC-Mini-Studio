@@ -1173,7 +1173,7 @@ class Api:
 
     def keybox_clear(self, lib: str = "history") -> dict:
         return self._ok(dict(self.keybox.clear(lib), stats=self.keybox.stats()))
-    def auto_crack_chain(self, sector: int = 0, key_hex: str = "") -> dict:
+    def auto_crack_chain(self, sector: int = 0, key_hex: str = "", algorithm: str = "auto") -> dict:
         """自动破解链（对齐官方真实流程）。
 
         官方顺序：寻卡拿 UID → 云端 keygen 按 UID 返回**该卡候选密钥全表**（实测可达 541 把）
@@ -1200,8 +1200,15 @@ class Api:
                         continue
                 raise NfcError("手工指定的密钥未通过认证")
 
-            # ---- 2) 云端 keygen 全表 → 批量验证 ----
-            if uid:
+            # ---- 2) 按选择的解码方式分流 ----
+            algo = (algorithm or "auto").strip().lower()
+            unsupported = {"pang": "全加密卡", "mfoc": "全加密变体", "fm11rf08s": "三代卡"}
+            if algo in unsupported:
+                raise NfcError(f"{algo}（{unsupported[algo]}）采集函数尚未实现；"
+                               f"该算法仅对特殊卡型有效，普通 M1 卡请用 network/auto")
+            # history / staticnest / hardnested 都先要一把已知密钥；
+            # network / auto 走云端密钥库（keygen）全表验证。
+            if algo in ("network", "auto", "history") and uid:
                 try:
                     self._on_device_log("info", f"自动链：云端 keygen 查询 UID {uid} …")
                     kg = cloud_keygen_lookup(uid, timeout=max(20.0, float(self.settings.data.get("cloud_timeout", 8)) * 3))

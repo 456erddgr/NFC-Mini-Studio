@@ -494,6 +494,19 @@
             0x38 未命中或返回非 ID 卡时自动回落 <b>0x11 寻卡</b>判类型，再按卡类型决定是否启动后台级联破解
             （ID 卡无密钥概念 → 跳过）。<span class="mono">注意：staticnested 变体破解同为 0x38 但带载荷，
             自动识别是单字节，设备靠 DATA 长度区分。</span></p>
+          <label class="field">
+            <span>解码方式（对齐小程序 8 种算法）</span>
+            <select class="input" id="decodeAlgo">
+              <option value="auto">自动（keygen 优先，推荐）</option>
+              <option value="network">network · 云端密钥库 keygen</option>
+              <option value="history">history · 读卡历史库复用</option>
+              <option value="staticnest">staticnest · 无漏洞卡</option>
+              <option value="hardnested">hardnested · 兼容卡</option>
+              <option value="pang">pang · 全加密卡</option>
+              <option value="mfoc">mfoc · 全加密变体</option>
+              <option value="fm11rf08s">fm11rf08s · 三代卡</option>
+            </select>
+          </label>
           <div class="row">
             <button class="btn primary" id="btnAutoIdentify">自动识别卡片（0x38）</button>
             <button class="btn primary" id="btnCrackScan">一键破解扫描</button>
