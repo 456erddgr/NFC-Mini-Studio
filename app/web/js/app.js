@@ -299,6 +299,33 @@ function onProgress(p) {
   dockShow(ui ? ui.title : ('任务 ' + job), pct, p.label || '', el);
 }
 
+/* 破解完成后：对齐小程序的「问你怎么处理」——写录手机 / 手环 或 整卡克隆 */
+async function askAfterCrack(sector, keys) {
+  if (!state.connected) return;
+  const keyText = (keys || []).filter(Boolean).join(' / ') || '—';
+  const goPhone = await confirmBox('破解完成 · 选择下一步',
+    `扇区 ${sector} 的密钥已拿到（${keyText}）。\n\n` +
+    '要不要「写录手机 / 手表 NFC」？\n' +
+    '确定 → 打开写录流程（先制转接卡，再让手机模拟）\n' +
+    '取消 → 继续询问是否整卡克隆到新卡');
+  if (goPhone) {
+    const box = $('#phoneNfcResult');
+    if (box) {
+      box.innerHTML = '<h4>写录手机 / 手表 NFC 步骤</h4><pre class="steps">' +
+        escapeHtml(phoneNfcStepsText()) + '</pre>';
+      box.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    toast('写录手机 / 手表：先制转接卡（放原卡）→ 再打开手机模拟实体卡', 'info');
+    log('破解完成 → 选择「写录手机 / 手表 NFC」（0x27 转接卡流程）', 'info');
+    return;
+  }
+  const goWrite = await confirmBox('写入新卡',
+    '把刚读到的整卡数据克隆到一张新卡吗？\n（请先把新卡放到感应区，再点「写入整卡」）');
+  if (goWrite) {
+    toast('请放入新卡，然后点「写入整卡」完成克隆', 'info');
+    log('破解完成 → 建议执行整卡克隆（写入整卡）', 'info');
+  }
+}
 function onCrackEvent(p) {
   if (p.stage === 'start') {
     state.crack.chain = (p.chain || []).map(id => ({ id, state: 'wait', label: id, cost: 0, detail: '' }));
@@ -347,7 +374,7 @@ function onCrackEvent(p) {
       setText('#crackBigPct', '100%');
       setText('#crackBigMeta', `扇区 ${p.sector} 破解成功`);
       showCrackKeys(p.keys || [], p.sector);
-      toast(`破解成功：扇区 ${p.sector} 密钥已获得`, 'ok');
+      toast(`破解成功：扇区 ${p.sector} 密钥已获得`, 'ok');      askAfterCrack(p.sector, p.keys || []);
     } else {
       setBadge('#autoCrackBadge', '破解未成功', 'warn');
       setBadge('#crackStateBadge', '未成功', 'warn');
@@ -993,6 +1020,11 @@ function applyConnectedUI(snap, address, name) {
 }
 
 async function refreshBattery() {
+  const show = !!(state.settings && state.settings.power_display);
+  const el = $('#kvBattery');
+  const row = el ? el.closest('.kv') : null;
+  if (row) row.style.display = show ? '' : 'none';
+  if (!show) return;
   try {
     const st = await api('device_state');
     setText('#kvBattery', (st && st.battery_text) ? st.battery_text : '—');
@@ -2304,6 +2336,7 @@ function bindUI() {
         const tok = $('#setCloudToken') ? $('#setCloudToken').value.trim() : '';
         if (tok) patch.cloud_token = tok;   /* 留空 = 不改动已保存的 token */
         state.settings = await api('save_settings', patch);
+        try { await refreshBattery(); } catch (e) {}
         if ($('#setCloudToken')) $('#setCloudToken').value = '';
         if ($('#keyInput')) $('#keyInput').value = state.settings.default_key;
         if ($('#keyType')) $('#keyType').value = state.settings.default_key_type;
