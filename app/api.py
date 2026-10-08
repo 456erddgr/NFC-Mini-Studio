@@ -1174,86 +1174,67 @@ class Api:
     def keybox_clear(self, lib: str = "history") -> dict:
         return self._ok(dict(self.keybox.clear(lib), stats=self.keybox.stats()))
     def auto_crack_chain(self, sector: int = 0, key_hex: str = "", algorithm: str = "auto") -> dict:
-        """自动破解链（对齐官方真实流程）。
+        """自动破解链（对齐官方：优先自动识别，也可手动指定算法）。
 
-        官方顺序：寻卡拿 UID → 云端 keygen 按 UID 返回**该卡候选密钥全表**（实测可达 541 把）
-        → 设备批量验证（0x06/0x09）逐把筛 → 命中的就是该扇区密钥。
-        若 keygen 无结果或全未命中，再退回 staticnest 采集 + 云端求解。
+        自动模式（auto）：寻卡拿 UID → 云端 keygen 返回候选密钥全表 → 设备批量验证（命中即停）。
+        手动模式：可指定 network / history / staticnest / hardnested 等算法。
         """
         def work():
             if not self.device.connected:
                 raise NfcError("请先连接读卡器")
-            steps: List[dict] = []
             block = int(sector) * 4
             uid = (self._last_card or {}).get("uid", "")
+            if not uid:
+                card = self.device.find_card()
+                uid = card.get("uid", "")
+                self._last_card = {"uid": uid, "card_type": card.get("card_type", ""),
+                                   "class": card.get("class", "")}
+            if not uid:
+                raise NfcError("未读到卡片 UID，请把卡放到感应区后重试")
 
-            # ---- 1) 手工指定的密钥优先 ----
+            algo = (algorithm or "auto").strip().lower()
+
+            # 手工指定密钥优先
             if key_hex:
                 kb = hex_to_bytes(key_hex)[:6].ljust(6, b"\x00")
                 for kt in (0, 1):
                     try:
                         self.device.auth(block, kb, kt)
-                        steps.append({"step": "manual", "key": kb.hex().upper(), "key_type": kt})
+                        self._cracked_keys[int(sector)] = kb.hex().upper()
                         return {"ok": True, "key": kb.hex().upper(), "key_type": kt,
-                                "uid": uid, "steps": steps, "source": "manual"}
+                                "uid": uid, "source": "manual"}
                     except NfcError:
                         continue
                 raise NfcError("手工指定的密钥未通过认证")
 
-            # ---- 2) 按选择的解码方式分流 ----
-            algo = (algorithm or "auto").strip().lower()
-            unsupported = {"pang": "全加密卡", "mfoc": "全加密变体", "fm11rf08s": "三代卡"}
-            if algo in unsupported:
-                raise NfcError(f"{algo}（{unsupported[algo]}）采集函数尚未实现；"
-                               f"该算法仅对特殊卡型有效，普通 M1 卡请用 network/auto")
-            # history / staticnest / hardnested 都先要一把已知密钥；
-            # network / auto 走云端密钥库（keygen）全表验证。
-            if algo in ("network", "auto", "history") and uid:
-                try:
-                    self._on_device_log("info", f"自动链：云端 keygen 查询 UID {uid} …")
-                    kg = cloud_keygen_lookup(uid, timeout=max(20.0, float(self.settings.data.get("cloud_timeout", 8)) * 3))
-                    cand = kg.get("keys") or []
-                    steps.append({"step": "keygen", "count": len(cand)})
-                    self._on_device_log("info", f"自动链：云端返回 {len(cand)} 把候选密钥，开始批量验证")
-                    # 官方同款：候选密钥分批下发验证（每批 64 把），推实时进度
-                    batch = 64
-                    total_c = max(1, len(cand))
-                    for kt in (0, 1):
-                        hit = None
-                        for bi in range(0, len(cand), batch):
-                            chunk = cand[bi:bi + batch]
-                            self._progress_push("crack", min(bi + len(chunk), total_c), total_c,
-                                                f"云端候选密钥验证 {min(bi + len(chunk), total_c)}/{total_c}"
-                                                f"（KEY {'A' if kt == 0 else 'B'}）")
-                            res = self.device.batch_verify(chunk, block=block, key_type=kt)
-                            if res.get("hits"):
-                                hit = res["hits"][0]
-                                break
-                        if hit:
-                            res = {"hits": [hit], "tried": bi + len(chunk)}
-                            break
-                        if res.get("hits"):
-                            hit = res["hits"][0]
-                            steps.append({"step": "verify", "key": hit["key"],
-                                          "key_type": kt, "tried": res.get("tried")})
-                            self._cracked_keys[int(sector)] = hit["key"]
-                            self.keybox.record_history(uid, [hit["key"]],
-                                                       note="keygen 云端密钥库命中")
-                            self._on_device_log("ok", f"自动链成功：扇区 {sector} 密钥 {hit['key']}"
-                                                      f"（云端 {len(cand)} 把中第 {res.get('tried')} 把命中）")
-                            return {"ok": True, "key": hit["key"], "key_type": kt, "uid": uid,
-                                    "candidates": len(cand), "tried": res.get("tried"),
-                                    "steps": steps, "source": "keygen"}
-                except Exception as exc:                   # noqa: BLE001
-                    steps.append({"step": "keygen", "error": str(exc)})
-                    self._on_device_log("warn", f"keygen 云端查询失败：{exc}")
+            # 未实现的特殊卡型算法
+            if algo in ("pang", "mfoc", "fm11rf08s"):
+                raise NfcError(f"{algo} 仅针对特殊卡型（全加密卡 / 三代卡），"
+                               f"普通 M1 卡请使用自动模式（network）")
 
-            # ---- 3) 退回 staticnest 采集（需已知密钥）----
-            self._on_device_log("warn", "keygen 未命中，尝试 staticnest 采集（需要至少一把已知密钥）")
-            r1 = self.device.collect_staticnest(block, 0, 0, 1)
-            r2 = self.device.collect_staticnest(block, 0, 1, 0)
-            steps.append({"step": "collect", "raw": [r1.get("raw"), r2.get("raw")]})
-            raise NfcError("keygen 未命中，staticnest 需要已知密钥作为起点；请扩充密钥库或使用侦测读卡")
+            # 自动 / network / history：云端 keygen 全表 → 设备批量验证（命中即停）
+            self._on_device_log("info", f"云端解密：查询 keygen（UID {uid}）…")
+            kg = cloud_keygen_lookup(uid, timeout=25.0)
+            cand = list(kg.get("keys") or [])
+            if not cand:
+                raise NfcError("云端密钥库未收录该卡（无候选密钥），请改用 staticnest / hardnested")
+            self._on_device_log("info", f"云端返回 {len(cand)} 把候选密钥，开始批量验证…")
+            self._progress_push("crack", 0, len(cand), f"云端候选 {len(cand)} 把，验证中…")
+            for kt in (0, 1):
+                res = self.device.batch_verify(cand, block=block, key_type=kt)
+                if res.get("hits"):
+                    hit = res["hits"][0]
+                    self._cracked_keys[int(sector)] = hit["key"]
+                    self.keybox.record_history(uid, [hit["key"]], note="keygen 云端密钥库命中")
+                    self._progress_push("crack", int(res.get("tried") or 0), len(cand),
+                                        f"命中 {hit['key']}")
+                    self._on_device_log("ok", f"云端解密成功：扇区 {sector} 密钥 {hit['key']}"
+                                              f"（{len(cand)} 把中第 {res.get('tried')} 把命中）")
+                    return {"ok": True, "key": hit["key"], "key_type": kt, "uid": uid,
+                            "candidates": len(cand), "tried": res.get("tried"),
+                            "source": "keygen", "algorithm": algo}
+            raise NfcError(f"云端 {len(cand)} 把候选密钥全部未通过认证；"
+                           f"该卡可能未收录或密钥不在库中")
         return self._guard(work)
     def keybox_batch_verify(self, keys: Any = None, lib: str = "public",
                             block: int = 0, key_type: int = 0) -> dict:
