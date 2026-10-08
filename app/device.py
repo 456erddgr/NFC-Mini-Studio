@@ -218,6 +218,8 @@ class NfcDevice:
         self._write_format: Optional[str] = None
         self._write_format_log: List[str] = []
         self.last_nonces: dict = {}          # 最近一次破解采集结果（供云端解算链路取用）
+        self._multi: Dict[int, Callable[[bytes], bool]] = {}   # msgid -> 多包回调(返回 True 结束)
+        self._multi_done: Dict[int, bool] = {}
         # P0：最近一次寻卡结果（写卡 / 写手机手环 NFC 需要复用 UID 与卡类型）
         self._last_card: Optional[dict] = None
 
@@ -409,6 +411,16 @@ class NfcDevice:
             return
         for mid, payload in frames:
             with self._lock:
+                cb = self._multi.get(mid)
+            if cb is not None:
+                try:
+                    if cb(payload):
+                        with self._lock:
+                            self._multi_done[mid] = True
+                except Exception:                      # noqa: BLE001
+                    pass
+                continue
+            with self._lock:
                 event = self._waiters.get(mid)
                 if event is not None:
                     self._payloads[mid] = payload
@@ -452,6 +464,43 @@ class NfcDevice:
         finally:
             with self._lock:
                 self._waiters.pop(mid, None)
+
+    def request_multi(self, data: bytes, on_packet, timeout: float = 600.0,
+                      should_stop=None) -> int:
+        """多包请求：同一 msgid 连续回多包时使用（hardnested 采集 256 包）。
+
+        on_packet(payload) 返回 True 表示采集结束。返回收到的包数。
+        """
+        with self._lock:
+            if not self.connected:
+                raise NfcError("设备未连接，请先连接读卡器")
+            mid = self._next_id()
+            frame = build_frame(bytes(data), mid)
+            self._multi[mid] = on_packet
+            self._multi_done.pop(mid, None)
+            count = {"n": 0}
+
+            def wrapped(payload: bytes) -> bool:
+                count["n"] += 1
+                return bool(on_packet(payload))
+
+            self._multi[mid] = wrapped
+        try:
+            self._log("trace", f"-> {fmt_hex(frame)}   [{_cmd_label(data)} · 多包]")
+            self.transport.send(frame)
+            deadline = time.time() + max(1.0, float(timeout))
+            while time.time() < deadline:
+                if should_stop and should_stop():
+                    break
+                with self._lock:
+                    if self._multi_done.pop(mid, False):
+                        break
+                time.sleep(0.05)
+        finally:
+            with self._lock:
+                self._multi.pop(mid, None)
+                self._multi_done.pop(mid, None)
+        return count["n"]
 
     # ------------------------------------------------------------ 设备信息
     def device_info(self) -> dict:
@@ -927,44 +976,52 @@ class NfcDevice:
         self._log("info", f"staticnest 采集：done={done} enc1={out['enc1_bytes_0']:#010x} ks1={out['ks1_bytes_0']:#010x}")
         return out
 
-    def collect_hardnested(self, block: int = 0, rounds: int = 12, key_type: int = 0,
-                           progress=None, should_stop=None) -> dict:
+    def collect_hardnested(self, block: int = 0, key_type_a: int = 0, key_type_b: int = 1,
+                           timeout: float = 600.0, progress=None, should_stop=None) -> dict:
         """0x20 hardnested 采集（兼容卡 / 密钥全未知卡的正解）。
 
-        请求 DATA = [0x20, t, n, keyTypeA, keyTypeB]（5 字节，与 staticnest 同构）。
-        每轮返回一段随机密文，采多轮后一并交云端 /hardnested 求解。
+        请求 DATA = [0x20, t=block, keyTypeA, n=0, keyTypeB]。
+        设备连续回 256 包：e[1]=进度(0..255)、e[2]=状态、e[3:7]+e[7] 为密文；
+        进度 255 结束。拼成的文本行整批交云端 /hardnested。
         """
-        frames, oks, errs = [], 0, 0
-        total = max(1, int(rounds))
-        for i in range(total):
-            if should_stop and should_stop():
-                break
-            payload = bytes([CMD.HARDNESTED, int(block) & 0xFF, i & 0xFF,
-                             int(key_type) & 1, 1 - (int(key_type) & 1)])
-            try:
-                d = self.request(payload, timeout=8.0)
-                code = _status_code(d)
-                if code == 0:
-                    frames.append({"raw": fmt_hex(d), "data": list(d),
-                                   "payload": fmt_hex(payload)})
-                    oks += 1
-                else:
-                    errs += 1
-            except Exception:
-                errs += 1
+        payload = bytes([CMD.HARDNESTED, int(block) & 0xFF,
+                         int(key_type_a) & 1, 0, int(key_type_b) & 1])
+        lines: List[str] = []
+        state = {"ok": True, "err": "", "progress": 0}
+
+        def on_packet(d: bytes) -> bool:
+            if len(d) < 3:
+                return False
+            prog = int(d[1])
+            status = int(d[2])
+            if status != 0:
+                state["ok"] = False
+                state["err"] = err_text(status)
+                return True
+            if len(d) >= 8:
+                lines.append(f"{d[3:7].hex().upper()} 000000{d[7]:02X}")
+            state["progress"] = prog
             if progress:
                 try:
-                    progress(i + 1, total, f"hardnested 采集 {i + 1}/{total}")
+                    progress(prog, 255, f"hardnested 采集 {prog}/255")
                 except Exception:
                     pass
-        out = {"ok": oks > 0, "frames": frames, "ok_count": oks, "err_count": errs,
-               "rounds": total, "block": int(block) & 0xFF,
-               "uid": (self._last_card or {}).get("uid", ""), "cmd": "0x20"}
-        self.last_nonces = out
-        self._log("info" if oks else "warn",
-                  f"hardnested 采集：成功 {oks}/{total} 轮")
-        return out
+            return prog == 255
 
+        try:
+            n = self.request_multi(payload, on_packet, timeout=timeout, should_stop=should_stop)
+        except NfcError as exc:
+            n = 0
+            state["ok"] = False
+            state["err"] = str(exc)
+        out = {"ok": bool(state["ok"] and lines), "lines": lines, "text": "\n".join(lines),
+               "packets": n, "progress": state["progress"], "error": state["err"],
+               "uid": (self._last_card or {}).get("uid", ""), "cmd": "0x20",
+               "payload": fmt_hex(payload)}
+        self.last_nonces = out
+        self._log("info" if out["ok"] else "warn",
+                  f"hardnested 采集：{n} 包 / {len(lines)} 行" + (f"（{state['err']}）" if state["err"] else ""))
+        return out
     # ------------------------------------------------------------ 侦测读卡（0x34/0x35/0x36）
     # 对齐小程序 data-sniffing 页：0x34 读初始侦测数据 → 0x35 上报模拟卡参数(UID/SAK/ATQA)
     # → 0x36 开始侦测数据流；仅 sniff:true 的机型支持（NFC Max 2.0 支持）。
