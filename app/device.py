@@ -1457,10 +1457,18 @@ def _as_block(data) -> bytes:
 
 
 def _status_code(d: bytes) -> int:
-    """取响应状态码：约定第 2 字节为状态码（0 表示成功）。"""
+    """取响应状态码：按命令查 STATUS_INDEX 定位（0x07/0x08/0x0B/0x20 等在 DATA[2]，
+    其余在 DATA[1]）。这条下标表逆向自小程序 dispatch 表，修掉"写块状态读错字节"的老毛病。"""
     if not d or len(d) < 2:
         return 2
-    return int(d[1])
+    try:
+        from .protocol import status_index
+        idx = status_index(d[0])
+    except Exception:
+        idx = 1
+    if idx >= len(d):
+        idx = 1
+    return int(d[idx])
 
 
 def _status_text(d: bytes) -> str:
