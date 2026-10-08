@@ -194,6 +194,7 @@
             <div class="kv"><label>固件版本</label><b id="kvVer">—</b></div>
             <div class="kv"><label>设备序列号</label><b id="kvSn" class="mono">—</b></div>
             <div class="kv"><label>设备电量</label><b id="kvBattery">—</b></div>
+            <div class="kv"><label>固件型号</label><b id="kvFwModel">—</b></div>
             <div class="kv"><label>卡上芯片</label><b id="kvChip">—</b></div>
           </div>
           <div class="row mt">
@@ -355,6 +356,8 @@
             <div class="row">
               <button class="btn primary" id="btnReadIdCard">读取 ID 卡（0x26）</button>
               <button class="btn ghost" id="btnSniffRun">侦测读卡（0x34/0x35/0x36）</button>
+              <button class="btn ghost" id="btnCheckFw">检查固件</button>
+              <button class="btn ghost" id="btnDownloadFw">下载固件</button>
             </div>
             <div class="kv-grid compact">
               <div class="kv"><label>卡号</label><b id="idNo" class="mono">—</b></div>

@@ -2275,6 +2275,8 @@ function bindUI() {
   if ($('#btnFormatCard')) $('#btnFormatCard').onclick = doFormatCard;
   if ($('#btnSniffRun')) $('#btnSniffRun').onclick = doSniffRun;
   if ($('#btnCloudCrack')) $('#btnCloudCrack').onclick = doCloudCrack;
+  if ($('#btnCheckFw')) $('#btnCheckFw').onclick = doCheckFw;
+  if ($('#btnDownloadFw')) $('#btnDownloadFw').onclick = doDownloadFw;
 
   /* 设置 */
   if ($('#btnPickWall')) {
@@ -2468,6 +2470,31 @@ async function doKeyboxAdd() {
   } catch (e) { toast('添加失败：' + e.message, 'err'); }
 }
 
+async function doCheckFw() {
+  try {
+    busy(true, '查询官方固件…');
+    const r = await api('firmware_match');
+    const m = r.matched || {};
+    setText('#kvFwModel', m.name ? `${m.name} v${m.version}` : '未匹配');
+    toast(m.name ? `匹配固件：${m.name} v${m.version}（CRC ${m.crc || '—'}）` : '未匹配到官方固件', m.name ? 'ok' : 'warn');
+    log(m.name ? `固件匹配：${m.name} v${m.version}，sniff=${m.sniff} key_cache=${m.key_cache}` : '未匹配到官方固件', m.name ? 'ok' : 'warn');
+  } catch (e) { toast('查询固件失败：' + e.message, 'err'); }
+  finally { busy(false); }
+}
+
+async function doDownloadFw() {
+  const ok = await confirmBox('下载官方固件',
+    '将按当前设备版本从厂商下载对应固件包到本地目录。\n' +
+    '只做下载与留存，不会刷写设备（刷写有变砖风险，暂不提供）。\n\n确定下载吗？');
+  if (!ok) return;
+  try {
+    busy(true, '下载固件中…');
+    const r = await api('firmware_download');
+    toast(`固件已下载：${r.name} v${r.version}（${Math.round((r.size||0)/1024)} KB）`, 'ok');
+    log(`固件已下载到 ${r.path}（${r.size} 字节）`, 'ok');
+  } catch (e) { toast('下载固件失败：' + e.message, 'err'); }
+  finally { busy(false); }
+}
 async function doCloudCrack() {
   if (!state.connected) { toast('请先连接读卡器', 'err'); return; }
   const ok = await confirmBox('云端破解（keygen 密钥库）',

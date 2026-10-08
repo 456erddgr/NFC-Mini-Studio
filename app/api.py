@@ -10,6 +10,7 @@ v2.0.0 变更：
 from __future__ import annotations
 
 import json
+import re
 import shutil
 import threading
 import time
@@ -1059,6 +1060,59 @@ class Api:
                                     f"staticnest 采集：{res.get('raw', '')}")
                 return res
             raise NfcError(f"暂不支持的采集方式：{method}（当前支持 staticnest）")
+        return self._guard(work)
+    def firmware_list(self) -> dict:
+        """官方固件清单（GET /get-devices，按型号列版本与下载地址）。"""
+        def work():
+            from .crack_engine import _vendor_request, vendor_urls, cloud_config
+            conf = cloud_config(self.settings.data)
+            urls = vendor_urls(conf["endpoint"])
+            payload = _vendor_request(urls["base"] + "/get-devices",
+                                      {"Accept": "application/json",
+                                       AUTH_HEADER: conf["token"], "User-Agent": VENDOR_UA},
+                                      None, conf["timeout"], method="GET")
+            items = payload.get("data") if isinstance(payload, dict) else payload
+            out = []
+            for d in (items or []):
+                if not isinstance(d, dict):
+                    continue
+                out.append({"name": d.get("name"), "version": d.get("version"),
+                            "firmware": d.get("firmware"), "crc": d.get("crc"),
+                            "sniff": d.get("sniff"), "key_cache": d.get("key_cache")})
+            return {"items": out, "count": len(out)}
+        return self._guard(work)
+
+    def firmware_match(self) -> dict:
+        """按当前设备固件版本匹配对应型号（对齐官方型号表）。"""
+        def work():
+            info = self.device.device_info() if self.device.connected else {}
+            ver = info.get("version", "")
+            res = self.firmware_list()
+            items = res.get("data", {}).get("items", []) if isinstance(res.get("data"), dict) else []
+            hit = next((x for x in items if str(x.get("version")) == str(ver)), None)
+            return {"device_version": ver, "matched": hit, "items": items}
+        return self._guard(work)
+
+    def firmware_download(self) -> dict:
+        """下载匹配型号的官方固件到本地（只下载、不刷写，避免变砖）。"""
+        def work():
+            import urllib.request
+            from .paths import data_dir
+            m = self.firmware_match()
+            d = m.get("data", {}).get("matched") if isinstance(m.get("data"), dict) else None
+            if not d or not d.get("firmware"):
+                raise NfcError("未匹配到该固件版本对应的官方固件包")
+            outdir = data_dir() / "firmware"
+            outdir.mkdir(parents=True, exist_ok=True)
+            safe = re.sub(r"[^A-Za-z0-9_.-]", "_", f"{d.get('name')}_v{d.get('version')}.bin")
+            dst = outdir / safe
+            req = urllib.request.Request(d["firmware"], headers={"User-Agent": VENDOR_UA})
+            with urllib.request.urlopen(req, timeout=120) as r, open(dst, "wb") as fp:
+                fp.write(r.read())
+            size = dst.stat().st_size
+            self._on_device_log("ok", f"已下载官方固件 {safe}（{size} 字节），保存于 {outdir}")
+            return {"name": d.get("name"), "version": d.get("version"), "path": str(dst),
+                    "size": size, "url": d.get("firmware"), "crc": d.get("crc")}
         return self._guard(work)
     # ------------------------------------------------------------ 密码库（公共 / 用户 / 读卡历史）
     def keybox_list(self, lib: str = "public") -> dict:
