@@ -373,6 +373,10 @@ WRITE_MODES = {
     "keyed": {"cmd": 0x08, "layout": "key_type_data", "timeout": 12.0,
               "label": "带密钥类型写卡",
               "hint": "0x08 · cmd, 块号, 密钥类型, 数据16（小程序 IC 写块指令）"},
+    # GTU（GDM-GTU 卡）：小程序里与普通 IC 写卡共用同一套写块流程，
+    # 只是档位选择不同，失败文案为 Code:12「写 GTU 卡失败」。
+    "gtu": {"cmd": 0x18, "layout": "block_zero_data", "timeout": 14.0,
+            "label": "GTU 写卡", "hint": "GDM-GTU 卡专用（复用 0x18 写块时序）"},
 }
 
 # 手机 / 手环 NFC 写录只用小程序 card-write 页的两档
@@ -383,6 +387,7 @@ WRITE_MODE_ALIASES = {
     "极速": "fast", "极速写卡": "fast", "fast": "fast", "0x16": "fast", "16": "fast",
     "普通": "normal", "普通写卡": "normal", "normal": "normal", "0x18": "normal", "18": "normal",
     "带密钥": "keyed", "带密钥类型写卡": "keyed", "keyed": "keyed",
+    "gtu": "gtu", "GTU": "gtu", "GTU写卡": "gtu", "gtu写卡": "gtu",
     "0x08": "keyed", "08": "keyed", "8": "keyed",
     # 旧前端遗留值：delay / 延迟写卡 / 0x24 一律纠正到正确指令 0x08，
     # 避免误发单字节 0x24（卡号校验）导致的「写卡无反应」。
