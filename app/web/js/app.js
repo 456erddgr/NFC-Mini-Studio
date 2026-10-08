@@ -1533,7 +1533,8 @@ async function cardAction(act, card) {
       busy(true, '写卡中…');
       setLed('busy');
       resetProgress('paste');
-      const res = await api('paste_card', card.id, true, '');
+      const writeTrailers = !state.settings || state.settings.encrypted_zero_sectors !== false;   /* 自动加密0扇区 */
+      const res = await api('paste_card', card.id, writeTrailers, '');
       const failed = (res.failed || []).length;
       finishProgress('paste', failed === 0,
         `成功 ${res.written} 块 / 失败 ${failed} 块 · ${res.elapsed}s`);
@@ -1798,11 +1799,14 @@ async function doWriteCardNo(onlyNo) {
   const check = !!($('#wCheckNo') || {}).checked;
   const verify = !!($('#wVerify') || {}).checked;
   const head = onlyNo ? '仅写卡号（0x0C）' : '开始写卡';
-  const ok = await confirmBox(head,
-    `待写卡号：${no}\n写卡档位：${mode}\n` +
-    (check ? '写前会回读当前卡号做校验，不一致则中止。\n' : '已关闭写前校验，将直接写入。\n') +
-    '写入会覆盖卡上原有卡号数据。\n\n确定继续吗？');
-  if (!ok) return;
+  const needTips = !state.settings || state.settings.write_card_tips !== false;   /* 写卡提示开关 */
+  if (needTips) {
+    const ok = await confirmBox(head,
+      `待写卡号：${no}\n写卡档位：${mode}\n` +
+      (check ? '写前会回读当前卡号做校验，不一致则中止。\n' : '已关闭写前校验，将直接写入。\n') +
+      '写入会覆盖卡上原有卡号数据。\n\n确定继续吗？');
+    if (!ok) return;
+  }
   try {
     busy(true, head + '…');
     setLed('busy');
