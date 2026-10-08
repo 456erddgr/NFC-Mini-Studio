@@ -1077,3 +1077,23 @@ body.light .toast { background: rgba(255, 255, 255, .86); color: #14161c; }
 .kb-idx { min-width: 104px; color: var(--muted, #93a1b5); font-size: 12px; }
 .kb-key { flex: 1; letter-spacing: .6px; font-size: 13px; }
 .keybox-list .empty { color: var(--muted, #93a1b5); text-align: center; padding: 20px; font-size: 13px; }
+
+/* ------------------------------------------------------------------ 设备 3D 精修
+   目标：让机身更像实物——更干净的白色聚碳酸酯材质、更明显的厚度与落地阴影、
+   正面边缘一圈冷调高光，指示灯带柔光晕。放在文件末尾以覆盖旧规则。 */
+.d3-shell {
+  filter: drop-shadow(0 22px 40px rgba(0, 0, 0, .52)) drop-shadow(0 4px 10px rgba(0, 0, 0, .38));
+}
+.d3-front {
+  background:
+    linear-gradient(158deg, #ffffff 0%, #f7f8fa 34%, #eceef3 68%, #dfe2e9 100%);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.95), inset 0 -1px 2px rgba(0,0,0,.10);
+}
+.d3-slice {
+  background: linear-gradient(180deg, #f6f7fa 0%, #e6e9ef 55%, #d5d9e2 100%);
+}
+.d3-face {
+  background: linear-gradient(165deg, #ffffff, #eef0f5 60%, #e2e5ec);
+}
+.d3-glare { opacity: .5; }
+.d3-led  { box-shadow: 0 0 8px rgba(48, 209, 88, .85), 0 0 16px rgba(48, 209, 88, .45); }
