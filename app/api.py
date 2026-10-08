@@ -985,6 +985,54 @@ class Api:
         # 设置变更后立即同步给破解引擎（切换破解模式/token 无需重启）
         self._crack_engine.bind(self.settings.data)
         return self._ok(data)
+    def wx_fetch_token(self, save: bool = True) -> dict:
+        """从正在运行的微信小程序进程内存里自动提取登录 token（NICETHEME）。
+
+        需要：微信已登录 + 「宜新 NFC Reader Tool」小程序正在运行。
+        只读扫描 WeChatAppEx.exe 内存里的 UserLog，不注入、不修改目标进程。
+        """
+        from .wx_token import fetch_token
+
+        def work():
+            res = fetch_token()
+            if not res.get("ok"):
+                raise NfcError(str(res.get("error") or "未能从微信小程序获取 token"))
+            if res.get("expired"):
+                raise NfcError("抓到的 token 已过期，请在微信里重新打开一次该小程序再试")
+            hours = max(0, int(res.get("expires_in") or 0)) // 3600
+            if save:
+                data = self.settings.update({"cloud_token": res["token"], "crack_mode": "cloud"})
+                self._crack_engine.bind(self.settings.data)
+                endpoint = data.get("cloud_endpoint")
+            else:
+                endpoint = self.settings.data.get("cloud_endpoint")
+            self._on_device_log(
+                "ok", f"已从微信小程序取得云端 token（UID {res.get('uid') or '?'}，"
+                      f"约剩 {hours} 小时，已自动填入）")
+            return {
+                "uid": res.get("uid"),
+                "expires_in": res.get("expires_in"),
+                "hours": hours,
+                "endpoint": endpoint,
+                "token_tail": str(res.get("token", ""))[-8:],
+                "saved": bool(save),
+            }
+        return self._guard(work)
+
+    def wx_token_status(self) -> dict:
+        """探测微信小程序是否在运行、能否抓到 token（不写入设置）。"""
+        from .wx_token import fetch_token
+
+        def work():
+            res = fetch_token(timeout_seconds=12.0)
+            return {
+                "ok": bool(res.get("ok")),
+                "uid": res.get("uid"),
+                "expires_in": res.get("expires_in"),
+                "expired": res.get("expired"),
+                "error": res.get("error"),
+            }
+        return self._ok(work())
 
     def list_wallpapers(self) -> dict:
         items = []

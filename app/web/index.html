@@ -621,6 +621,10 @@
               <input class="input mono" id="setCloudToken" type="password" placeholder="粘贴登录态 token（留空 = 保持不变）">
             </label>
           </div>
+          <div class="row wrap mt">
+            <button class="btn primary" id="btnWxToken">从微信小程序自动获取 token</button>
+            <span class="hint grow" id="wxTokenOut">微信已登录且「宜新 NFC Reader Tool」小程序已打开时，点这里自动抓取并填入云端 token。</span>
+          </div>
           <p class="hint">token 来源：微信小程序「宜新 NFC Reader Tool」登录账号后，请求头 NICETHEME 的值（登录态、会过期，需自行获取粘贴）。密钥库接口用的厂商内置凭据已随软件内置，无需填写；未填 token 时云端会跳过并自动降级本地 mfkey32。</p>
 
           <div class="row wrap mt">

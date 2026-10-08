@@ -2220,6 +2220,7 @@ function bindUI() {
   if ($('#modeCloud')) $('#modeCloud').onclick = () => setCrackMode('cloud', true);
   if ($('#modeLocal')) $('#modeLocal').onclick = () => setCrackMode('local', true);
   if ($('#btnVerifyLocal')) $('#btnVerifyLocal').onclick = doVerifyLocal;
+  if ($('#btnWxToken')) $('#btnWxToken').onclick = doWxToken;
 
   /* 设置 */
   if ($('#btnPickWall')) {
@@ -2359,6 +2360,31 @@ async function refreshCrackEngine() {
     local.available ? 'ok' : 'warn');
 }
 
+async function doWxToken() {
+  const out = $('#wxTokenOut');
+  const btn = $('#btnWxToken');
+  if (btn) btn.disabled = true;
+  if (out) out.textContent = '正在扫描微信小程序进程（请保持小程序已打开）…';
+  try {
+    const r = await api('wx_fetch_token', true);
+    const hours = (r && r.hours != null) ? r.hours : Math.floor(((r && r.expires_in) || 0) / 3600);
+    const text = `已获取云端 token：UID ${(r && r.uid) || '?'} · 剩余约 ${hours} 小时 · 已自动填入并切到云端`;
+    if (out) out.textContent = text;
+    state.settings = await api('get_settings');
+    state.crack_mode = 'cloud';
+    renderCrackMode('cloud');
+    if ($('#setCloudToken')) $('#setCloudToken').value = '';
+    toast('已从微信获取云端 token', 'ok');
+    log(text, 'ok');
+    await refreshCrackEngine();
+  } catch (e) {
+    if (out) out.textContent = '获取失败：' + e.message;
+    toast('获取 token 失败：' + e.message, 'err');
+    log('获取云端 token 失败：' + e.message, 'err');
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
 async function doVerifyLocal() {
   const out = $('#crackVerifyOut');
   const btn = $('#btnVerifyLocal');
