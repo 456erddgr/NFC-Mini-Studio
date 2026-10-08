@@ -2277,6 +2277,7 @@ function bindUI() {
   if ($('#btnCloudCrack')) $('#btnCloudCrack').onclick = doCloudCrack;
   if ($('#btnCheckFw')) $('#btnCheckFw').onclick = doCheckFw;
   if ($('#btnDownloadFw')) $('#btnDownloadFw').onclick = doDownloadFw;
+  if ($('#btnCardDiff')) $('#btnCardDiff').onclick = doCardDiff;
 
   /* 设置 */
   if ($('#btnPickWall')) {
@@ -2482,6 +2483,21 @@ async function doCheckFw() {
   finally { busy(false); }
 }
 
+async function doCardDiff() {
+  try {
+    const r = await api('card_diff', '', '');
+    const n = r.diff_blocks || 0;
+    const msg = `卡数据对比\n基准：${(r.base||{}).name || '—'}\n目标：${(r.target||{}).name || '—'}\n` +
+      `共 ${r.total_blocks} 块，相同 ${r.same_blocks}，差异 ${n}\n\n${r.verdict}`;
+    await confirmBox('卡数据对比', msg);
+    log(`卡数据对比：${r.total_blocks} 块，差异 ${n} 块 → ${r.verdict}`, r.is_rolling_code ? 'warn' : 'info');
+    if (n) {
+      const brief = (r.diffs || []).slice(0, 8)
+        .map(d => `块 ${d.block}: ${d.diff_hex.join(' ')}`).join('\n');
+      log('差异明细：\n' + brief, 'info');
+    }
+  } catch (e) { toast('对比失败：' + e.message, 'err'); }
+}
 async function doDownloadFw() {
   const ok = await confirmBox('下载官方固件',
     '将按当前设备版本从厂商下载对应固件包到本地目录。\n' +

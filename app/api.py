@@ -1114,6 +1114,50 @@ class Api:
             return {"name": d.get("name"), "version": d.get("version"), "path": str(dst),
                     "size": size, "url": d.get("firmware"), "crc": d.get("crc")}
         return self._guard(work)
+    def card_diff(self, base_id: str = "", target_id: str = "") -> dict:
+        """卡数据对比（对齐小程序 card-diff 的滚动码分析）。
+
+        比较卡夹里两张卡（或两次 dump）的每个数据块，列出差异块与差异字节数，
+        用来判断是否「滚动码卡」（同一张卡两次读取只有个别字节在变）。
+        """
+        def work():
+            a = self.cardbox.get(base_id)
+            b = self.cardbox.get(target_id)
+            if not a or not b:
+                cards = self.cardbox.list()
+                if len(cards) < 2:
+                    raise NfcError("至少需要卡夹里有 2 张卡才能对比")
+                a, b = cards[0], cards[1]
+            ba = a.get("blocks") or {}
+            bb = b.get("blocks") or {}
+            diffs = []
+            all_blocks = sorted(set(list(ba.keys()) + list(bb.keys())), key=lambda x: int(x))
+            same = 0
+            for k in all_blocks:
+                va = str(ba.get(str(k), "") or "").replace(" ", "").upper()
+                vb = str(bb.get(str(k), "") or "").replace(" ", "").upper()
+                if va == vb:
+                    same += 1
+                    continue
+                pos = [i for i in range(min(len(va), len(vb))) if va[i] != vb[i]]
+                diffs.append({"block": int(k), "a": va, "b": vb,
+                              "diff_bytes": len(set(i // 2 for i in pos)),
+                              "diff_hex": sorted({va[i:i+2] + "→" + vb[i:i+2]
+                                                  for i in pos if i % 2 == 0})[:8]})
+            total = len(all_blocks)
+            changing = len(diffs)
+            # 滚动码判定：只有很少几个块在变（通常 0-2 块），其余完全一致
+            is_rolling = bool(diffs) and changing <= 2 and total >= 8
+            return {
+                "base": {"id": a.get("id"), "name": a.get("name"), "uid": a.get("uid")},
+                "target": {"id": b.get("id"), "name": b.get("name"), "uid": b.get("uid")},
+                "total_blocks": total, "same_blocks": same, "diff_blocks": changing,
+                "diffs": diffs, "is_rolling_code": is_rolling,
+                "verdict": ("疑似滚动码卡：两次读取仅少量块变化，直接克隆可能导致门禁失效"
+                            if is_rolling else
+                            "非典型滚动码卡（差异块较多或无差异）"),
+            }
+        return self._guard(work)
     # ------------------------------------------------------------ 密码库（公共 / 用户 / 读卡历史）
     def keybox_list(self, lib: str = "public") -> dict:
         return self._ok({"lib": lib, "items": self.keybox.list(lib),
