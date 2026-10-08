@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover - 极端情况下的兜底（值与小程�
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "wallpaper": "",            # 背景图文件名（位于 wallpapers 目录），空 = 内置动态渐变
-    "preset": "aurora",         # 内置动态背景 id（wallpaper 为空时生效），前端 PRESETS 里的 id
+    "preset": "mono",           # 内置动态背景 id（默认石墨灰，macOS 中性色）
     "glass": 26,                # 玻璃模糊强度 0-100（小模糊=清透折射，大模糊=发糊发白）
     "opacity": 4,               # 玻璃乳白度 0-60（越低越通透）
     "theme": "dark",            # dark / light
@@ -129,6 +129,9 @@ class Settings(JsonStore):
         # 旧默认 opacity：26(初版) → 13(二版) → 6(三版) → 现在 4
         if self._data.get("opacity") in (None, 26, 13, 6):
             self._data["opacity"] = DEFAULT_SETTINGS["opacity"]
+        # 旧默认背景：极光（偏蓝）→ 石墨灰中性色
+        if self._data.get("preset") in (None, "aurora"):
+            self._data["preset"] = DEFAULT_SETTINGS["preset"]
         # 旧默认 glass：70 → 90 → 现在 26
         if self._data.get("glass") in (None, 70, 90):
             self._data["glass"] = DEFAULT_SETTINGS["glass"]

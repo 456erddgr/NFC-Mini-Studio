@@ -56,9 +56,9 @@ const PRESETS = [
          "radial-gradient(120% 130% at 50% 105%, #1c3f4a, transparent 58%)," +
          "linear-gradient(150deg, #06100c, #0a1712 45%, #040906)" },
   { id: 'mono', name: '石墨',
-    css: "radial-gradient(120% 120% at 20% 8%, #2a2f3d, transparent 55%)," +
-         "radial-gradient(110% 110% at 82% 22%, #3d3548, transparent 52%)," +
-         "radial-gradient(120% 130% at 50% 108%, #1a1f2a, transparent 58%)," +
+    css: "radial-gradient(120% 120% at 20% 8%, #3a3a3c, transparent 55%)," +
+         "radial-gradient(110% 110% at 82% 22%, #4a4a4d, transparent 52%)," +
+         "radial-gradient(120% 130% at 50% 108%, #1c1c1e, transparent 58%)," +
          "linear-gradient(150deg, #0a0b10, #12141c 45%, #07080c)" },
 ];
 
