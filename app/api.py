@@ -18,8 +18,10 @@ from pathlib import Path
 from typing import Any, Callable, Dict, Optional
 from urllib.parse import quote
 
-from .crack_engine import (ENGINE_LABELS, MODE_CHOICES, MODE_CLOUD, MODE_DEVICE,
-                           MODE_LOCAL, CrackEngine, parse_frames)
+from .crack_engine import (AUTH_HEADER, ENGINE_LABELS, MODE_CHOICES, MODE_CLOUD,
+                           MODE_DEVICE, MODE_LOCAL, VENDOR_UA, CrackEngine,
+                           _vendor_request, cloud_config, parse_frames,
+                           parse_vendor_response, vendor_urls)
 from .device import CRACK_CHAIN, CRACK_LABELS, NfcDevice
 from .paths import (APP_TITLE, APP_VERSION, sync_wallpapers, wallpapers_dir,
                     web_assets_dir, crack_cache_file)
@@ -1073,6 +1075,73 @@ class Api:
 
     def keybox_clear(self, lib: str = "history") -> dict:
         return self._ok(dict(self.keybox.clear(lib), stats=self.keybox.stats()))
+    def auto_crack_chain(self, sector: int = 0, key_hex: str = "") -> dict:
+        """自动破解链（对齐小程序）：批量验证拿第一把密钥 → staticnest 采集 → 云端求解。
+
+        前提：至少有一把该卡的已知密钥（来自密码库、默认密钥或手工指定）。
+        没有第一把密钥时，staticnest/hardnested 都无从起算。
+        """
+        def work():
+            if not self.device.connected:
+                raise NfcError("请先连接读卡器")
+            steps: List[dict] = []
+            block = int(sector) * 4
+            # 1) 拿第一把密钥
+            first_key, first_kt = "", 0
+            if key_hex:
+                kb = hex_to_bytes(key_hex)[:6].ljust(6, b"\x00")
+                try:
+                    self.device.auth(block, kb, 0)
+                    first_key, first_kt = kb.hex().upper(), 0
+                except NfcError:
+                    self.device.auth(block, kb, 1)
+                    first_key, first_kt = kb.hex().upper(), 1
+                steps.append({"step": "manual_key", "key": first_key, "key_type": first_kt})
+            else:
+                pool = [r.get("key") for r in self.keybox.list("public")] + \
+                       [r.get("key") for r in self.keybox.list("user")]
+                pool = [k for k in pool if k] + \
+                       [self.settings.data.get("default_key", "FFFFFFFFFFFF")]
+                for kt in (0, 1):
+                    res = self.device.batch_verify(pool, block=block, key_type=kt)
+                    if res.get("hits"):
+                        first_key, first_kt = res["hits"][0]["key"], kt
+                        break
+                steps.append({"step": "batch_verify", "key": first_key, "key_type": first_kt,
+                              "pool": len(pool)})
+            if not first_key:
+                raise NfcError("密码库里没有能通过认证的密钥；staticnest 需要至少一把已知密钥作为起点")
+            # 2) staticnest 两次采集
+            self._on_device_log("info", f"自动链：起点密钥 {first_key}（KEY {'A' if first_kt==0 else 'B'}），开始采集")
+            r1 = self.device.collect_staticnest(block, 0, first_kt, 1 - first_kt)
+            r2 = self.device.collect_staticnest(block, 0, 1 - first_kt, first_kt)
+            steps.append({"step": "collect", "r1": r1.get("raw"), "r2": r2.get("raw")})
+            # 3) 云端 staticnest
+            uid = int((self._last_card or {}).get("uid") or "0", 16)
+            conf = cloud_config(self.settings.data)
+            urls = vendor_urls(conf["endpoint"])
+            body = {"uid": uid,
+                    "enc1_bytes": [r1.get("enc1_bytes_0", 0), r2.get("enc1_bytes_0", 0)],
+                    "ks1_bytes": [r1.get("ks1_bytes_0", 0), r2.get("ks1_bytes_0", 0)]}
+            self._on_device_log("info", f"自动链：上传云端 /recovery/staticnest（uid={uid:08X}）")
+            payload = _vendor_request(urls["base"] + "/recovery/staticnest",
+                                      {"Content-Type": "application/json", "Accept": "application/json",
+                                       AUTH_HEADER: conf["token"], "User-Agent": VENDOR_UA},
+                                      body, conf["timeout"])
+            res = parse_vendor_response(payload)
+            steps.append({"step": "cloud", "status": res.get("status"), "keys": res.get("keys") or []})
+            keys = res.get("keys") or []
+            if res.get("ok") and keys:
+                for k in keys:
+                    try:
+                        self.device.auth(block, hex_to_bytes(k)[:6].ljust(6, b"\x00"), first_kt)
+                        self._cracked_keys[int(sector)] = k.upper()
+                        break
+                    except NfcError:
+                        continue
+            return {"ok": bool(keys), "steps": steps, "keys": keys,
+                    "first_key": first_key, "uid": f"{uid:08X}"}
+        return self._guard(work)
     def keybox_batch_verify(self, keys: Any = None, lib: str = "public",
                             block: int = 0, key_type: int = 0) -> dict:
         """批量验证密钥（对齐小程序 0x40 密钥缓存 + 0x41 批量验证的功能语义）。
