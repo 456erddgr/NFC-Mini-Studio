@@ -1,0 +1,58 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 300 510" width="300" height="510">
+  <defs>
+    <linearGradient id="body" x1="0" y1="0" x2="0.28" y2="1">
+      <stop offset="0" stop-color="#ffffff"/>
+      <stop offset="0.42" stop-color="#f5f7fb"/>
+      <stop offset="0.76" stop-color="#e9edf4"/>
+      <stop offset="1" stop-color="#dee4ed"/>
+    </linearGradient>
+    <linearGradient id="innerEdge" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.95"/>
+      <stop offset="0.55" stop-color="#ffffff" stop-opacity="0"/>
+      <stop offset="1" stop-color="#b9c4d3" stop-opacity="0.35"/>
+    </linearGradient>
+    <radialGradient id="zoneFill" cx="0.5" cy="0.38" r="0.75">
+      <stop offset="0" stop-color="#ffffff" stop-opacity="0.75"/>
+      <stop offset="0.7" stop-color="#dde3ec" stop-opacity="0.45"/>
+      <stop offset="1" stop-color="#c3ccd9" stop-opacity="0.35"/>
+    </radialGradient>
+    <radialGradient id="lens" cx="0.35" cy="0.3" r="0.85">
+      <stop offset="0" stop-color="#eef1f6"/>
+      <stop offset="0.55" stop-color="#a9b6c6"/>
+      <stop offset="1" stop-color="#5f6d7e"/>
+    </radialGradient>
+    <filter id="soft" x="-25%" y="-25%" width="150%" height="150%">
+      <feGaussianBlur stdDeviation="6"/>
+    </filter>
+  </defs>
+
+  <!-- 机身：正视平视的大圆角矩形（无透视、无侧面） -->
+  <rect x="0.5" y="0.5" width="299" height="509" rx="51" fill="url(#body)"/>
+  <rect x="0.5" y="0.5" width="299" height="509" rx="51" fill="none" stroke="#c6cedb" stroke-width="1"/>
+
+  <!-- 哑光塑料的柔和光影 -->
+  <ellipse cx="150" cy="392" rx="96" ry="118" fill="#9dabbe" opacity="0.22" filter="url(#soft)"/>
+  <rect x="7" y="7" width="286" height="496" rx="45" fill="none" stroke="url(#innerEdge)" stroke-width="2.5"/>
+
+  <!-- 蓝牙标识（居中偏上） -->
+  <g transform="translate(112.8 62.8) scale(3.1)" fill="#7d8b9e" opacity="0.92">
+    <path d="M17.71 7.71L12 2h-1v7.59L6.41 5 5 6.41 10.59 12 5 17.59 6.41 19 11 14.41V22h1l5.71-5.71-4.3-4.29 4.3-4.29zM13 5.83l1.88 1.88L13 9.59V5.83zm1.88 10.46L13 18.17v-3.76l1.88 1.88z"/>
+  </g>
+
+  <!-- 中央内凹 NFC 感应区 -->
+  <rect x="52" y="196" width="196" height="196" rx="46" fill="url(#zoneFill)" stroke="#b7c2d3" stroke-width="1.5"/>
+  <rect x="60" y="204" width="180" height="180" rx="40" fill="none" stroke="#ffffff" stroke-opacity="0.7" stroke-width="1"/>
+  <g fill="none" stroke="#7b8a9f" stroke-width="4.5" stroke-linecap="round" opacity="0.9">
+    <path d="M92 278a26 26 0 0 1 0 32"/>
+    <path d="M80 266a42 42 0 0 1 0 56"/>
+    <path d="M68 254a58 58 0 0 1 0 80"/>
+  </g>
+  <text x="176" y="306" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="30" font-weight="600" letter-spacing="5" fill="#77869a">NFC</text>
+
+  <!-- 右上绿色指示灯底座（实时状态由界面叠加显示） -->
+  <circle cx="247" cy="39" r="13" fill="#ffffff" opacity="0.5"/>
+  <circle cx="247" cy="39" r="8.5" fill="url(#lens)"/>
+
+  <!-- 型号丝印 -->
+  <text x="150" y="452" text-anchor="middle" font-family="Segoe UI, Arial, sans-serif" font-size="14" font-weight="600" letter-spacing="3.5" fill="#8d9aac">NFC MINI 2.0</text>
+</svg>

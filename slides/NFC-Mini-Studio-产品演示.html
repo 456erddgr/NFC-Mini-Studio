@@ -1,0 +1,952 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>NFC Mini Studio · 桌面读卡软件</title>
+
+<!-- 字体：Bricolage Grotesque（标题）/ Instrument Sans（正文）/ JetBrains Mono（技术信息）
+     中文回落到系统雅黑，保证离线也不糊 -->
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,200..800&family=Instrument+Sans:wght@400;500;600&family=JetBrains+Mono:wght@400;600&display=swap">
+
+<style>
+/* ===========================================
+   THEME TOKENS
+   改这里就能整体换色：--accent 是主信号色
+   =========================================== */
+:root {
+  --bg:            #06070B;
+  --bg-soft:       #0B0D14;
+  --text:          #ECEDF3;
+  --muted:         #8C92A6;
+  --dim:           #575D71;
+  --accent:        #D8FF3E;   /* 信号青柠 —— 扫描/高亮 */
+  --accent-soft:   rgba(216, 255, 62, 0.14);
+  --violet:        #8B7CFF;   /* 呼应软件界面的紫 */
+  --violet-soft:   rgba(139, 124, 255, 0.16);
+  --line:          rgba(255, 255, 255, 0.09);
+  --glass:         rgba(255, 255, 255, 0.045);
+
+  --font-display: "Bricolage Grotesque", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  --font-body:    "Instrument Sans", "Microsoft YaHei UI", "PingFang SC", sans-serif;
+  --font-mono:    "JetBrains Mono", "Cascadia Mono", "Microsoft YaHei UI", monospace;
+
+  --display-size: clamp(2.4rem, 8.5vw, 7rem);
+  --kicker-size:  clamp(0.74rem, 1.15vw, 0.94rem);
+  --ease-out-expo: cubic-bezier(0.16, 1, 0.3, 1);
+  --duration-normal: 0.7s;
+}
+
+/* ===========================================
+   BASE RESET
+   =========================================== */
+* { margin: 0; padding: 0; box-sizing: border-box; }
+
+/* --- viewport-base.css 内容（强制基线，必须完整保留）--- */
+html, body {
+    height: 100%;
+    overflow-x: hidden;
+}
+html {
+    scroll-snap-type: y mandatory;
+    scroll-behavior: smooth;
+}
+.slide {
+    width: 100vw;
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+    scroll-snap-align: start;
+    display: flex;
+    flex-direction: column;
+    position: relative;
+}
+.slide-content {
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    max-height: 100%;
+    overflow: hidden;
+    padding: var(--slide-padding);
+}
+:root {
+    --title-size: clamp(1.5rem, 5vw, 4rem);
+    --h2-size: clamp(1.25rem, 3.5vw, 2.5rem);
+    --h3-size: clamp(1rem, 2.5vw, 1.75rem);
+    --body-size: clamp(0.75rem, 1.5vw, 1.125rem);
+    --small-size: clamp(0.65rem, 1vw, 0.875rem);
+    --slide-padding: clamp(1rem, 4vw, 4rem);
+    --content-gap: clamp(0.5rem, 2vw, 2rem);
+    --element-gap: clamp(0.25rem, 1vw, 1rem);
+}
+.card, .container, .content-box {
+    max-width: min(90vw, 1000px);
+    max-height: min(80vh, 700px);
+}
+.feature-list, .bullet-list { gap: clamp(0.4rem, 1vh, 1rem); }
+.feature-list li, .bullet-list li {
+    font-size: var(--body-size);
+    line-height: 1.4;
+}
+.grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, 250px), 1fr));
+    gap: clamp(0.5rem, 1.5vw, 1rem);
+}
+img, .image-container {
+    max-width: 100%;
+    max-height: min(50vh, 400px);
+    object-fit: contain;
+}
+@media (max-height: 700px) {
+    :root {
+        --slide-padding: clamp(0.75rem, 3vw, 2rem);
+        --content-gap: clamp(0.4rem, 1.5vw, 1rem);
+        --title-size: clamp(1.25rem, 4.5vw, 2.5rem);
+        --h2-size: clamp(1rem, 3vw, 1.75rem);
+    }
+}
+@media (max-height: 600px) {
+    :root {
+        --slide-padding: clamp(0.5rem, 2.5vw, 1.5rem);
+        --content-gap: clamp(0.3rem, 1vw, 0.75rem);
+        --title-size: clamp(1.1rem, 4vw, 2rem);
+        --body-size: clamp(0.7rem, 1.2vw, 0.95rem);
+    }
+    .nav-dots, .keyboard-hint, .decorative { display: none; }
+}
+@media (max-height: 500px) {
+    :root {
+        --slide-padding: clamp(0.4rem, 2vw, 1rem);
+        --title-size: clamp(1rem, 3.5vw, 1.5rem);
+        --h2-size: clamp(0.9rem, 2.5vw, 1.25rem);
+        --body-size: clamp(0.65rem, 1vw, 0.85rem);
+    }
+}
+@media (max-width: 600px) {
+    :root { --title-size: clamp(1.25rem, 7vw, 2.5rem); }
+    .grid { grid-template-columns: 1fr; }
+}
+@media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        transition-duration: 0.2s !important;
+    }
+    html { scroll-behavior: auto; }
+}
+/* --- viewport-base.css 结束 --- */
+
+body {
+  background: var(--bg);
+  color: var(--text);
+  font-family: var(--font-body);
+  -webkit-font-smoothing: antialiased;
+  text-rendering: optimizeLegibility;
+}
+
+/* ===========================================
+   ATMOSPHERE —— 背景层（网格 + 光晕）
+   =========================================== */
+.bg-layer {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none;
+  background:
+    radial-gradient(58vw 58vw at 82% 8%,  rgba(139,124,255,0.20) 0%, transparent 62%),
+    radial-gradient(50vw 50vw at 6% 92%,  rgba(216,255,62,0.10) 0%, transparent 60%),
+    radial-gradient(70vw 70vw at 50% 50%, rgba(255,255,255,0.022) 0%, transparent 70%),
+    var(--bg);
+}
+.bg-grid {
+  position: fixed; inset: 0; z-index: 0; pointer-events: none; opacity: .5;
+  background-image:
+    linear-gradient(rgba(255,255,255,0.028) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255,255,255,0.028) 1px, transparent 1px);
+  background-size: clamp(34px, 4vw, 62px) clamp(34px, 4vw, 62px);
+  mask-image: radial-gradient(ellipse 100% 100% at 50% 50%, #000 30%, transparent 100%);
+}
+.slide { z-index: 1; }
+
+/* ===========================================
+   FIXED UI —— 进度条 / 页码 / 导航点
+   =========================================== */
+.progress-bar {
+  position: fixed; top: 0; left: 0; z-index: 60;
+  height: 2px; width: 0%;
+  background: linear-gradient(90deg, var(--violet), var(--accent));
+  transition: width .5s var(--ease-out-expo);
+}
+.slide-counter {
+  position: fixed; right: clamp(0.9rem, 2vw, 1.6rem); bottom: clamp(0.8rem, 1.6vw, 1.2rem);
+  z-index: 60; font-family: var(--font-mono);
+  font-size: clamp(0.6rem, 0.85vw, 0.75rem);
+  color: var(--dim); letter-spacing: .1em;
+}
+.slide-counter b { color: var(--accent); font-weight: 600; }
+.nav-dots {
+  position: fixed; right: clamp(0.6rem, 1.2vw, 1rem); top: 50%; transform: translateY(-50%);
+  z-index: 60; display: flex; flex-direction: column; gap: clamp(5px, 0.8vh, 9px);
+}
+.nav-dots button {
+  width: 14px; height: 2px; border: 0; padding: 0; cursor: pointer;
+  background: rgba(255,255,255,0.20); transition: all .35s var(--ease-out-expo);
+}
+.nav-dots button:hover { background: rgba(255,255,255,0.5); width: 20px; }
+.nav-dots button.is-active { background: var(--accent); width: 26px; }
+
+/* ===========================================
+   ANIMATION —— 进场
+   =========================================== */
+.reveal {
+  opacity: 0; transform: translateY(26px);
+  transition: opacity var(--duration-normal) var(--ease-out-expo),
+              transform var(--duration-normal) var(--ease-out-expo);
+}
+.slide.visible .reveal { opacity: 1; transform: translateY(0); }
+.slide.visible .reveal:nth-child(1) { transition-delay: .06s; }
+.slide.visible .reveal:nth-child(2) { transition-delay: .14s; }
+.slide.visible .reveal:nth-child(3) { transition-delay: .22s; }
+.slide.visible .reveal:nth-child(4) { transition-delay: .30s; }
+.slide.visible .reveal:nth-child(5) { transition-delay: .38s; }
+.slide.visible .reveal:nth-child(6) { transition-delay: .46s; }
+.slide.visible .reveal:nth-child(7) { transition-delay: .54s; }
+.slide.visible .reveal:nth-child(8) { transition-delay: .62s; }
+
+/* ===========================================
+   TYPOGRAPHY HELPERS
+   =========================================== */
+.kicker {
+  font-family: var(--font-mono); font-size: var(--kicker-size);
+  letter-spacing: .22em; text-transform: uppercase;
+  color: var(--accent); display: flex; align-items: center;
+  gap: clamp(0.4rem, 0.8vw, 0.7rem);
+}
+.kicker::before {
+  content: ""; width: clamp(14px, 2vw, 30px); height: 1px;
+  background: var(--accent); display: block; flex: none;
+}
+.kicker.violet { color: var(--violet); }
+.kicker.violet::before { background: var(--violet); }
+
+h1.display {
+  font-family: var(--font-display); font-weight: 800;
+  font-size: var(--display-size); line-height: .92;
+  letter-spacing: -.03em;
+}
+h2.head {
+  font-family: var(--font-display); font-weight: 700;
+  font-size: var(--title-size); line-height: 1.06;
+  letter-spacing: -.02em; max-width: 22ch;
+}
+h3.sub {
+  font-family: var(--font-display); font-weight: 600;
+  font-size: var(--h3-size); line-height: 1.15;
+}
+p.body {
+  font-size: var(--body-size); line-height: 1.72; color: var(--muted);
+  max-width: 58ch;
+}
+p.body strong, .hl { color: var(--text); font-weight: 500; }
+.mono { font-family: var(--font-mono); }
+
+/* ===========================================
+   LAYOUT PRIMITIVES
+   =========================================== */
+.wrap { width: 100%; display: flex; flex-direction: column; gap: var(--content-gap); }
+.cols {
+  display: grid; grid-template-columns: 1fr 1fr;
+  gap: clamp(1rem, 3vw, 3rem); align-items: center;
+}
+.cols.wide-right { grid-template-columns: 0.85fr 1.15fr; }
+@media (max-width: 860px) { .cols, .cols.wide-right { grid-template-columns: 1fr; } }
+
+.card {
+  background: var(--glass);
+  border: 1px solid var(--line);
+  border-radius: clamp(10px, 1.1vw, 16px);
+  padding: clamp(0.85rem, 1.6vw, 1.5rem);
+  backdrop-filter: blur(8px);
+}
+.cards-3 {
+  display: grid; grid-template-columns: repeat(3, 1fr);
+  gap: clamp(0.6rem, 1.3vw, 1.1rem);
+}
+.cards-2 { display: grid; grid-template-columns: repeat(2, 1fr); gap: clamp(0.6rem, 1.3vw, 1.1rem); }
+@media (max-width: 860px) { .cards-3 { grid-template-columns: repeat(2, 1fr); } }
+@media (max-width: 600px) { .cards-3, .cards-2 { grid-template-columns: 1fr; } }
+
+.card .num {
+  font-family: var(--font-mono); font-size: var(--kicker-size);
+  color: var(--dim); letter-spacing: .12em;
+}
+.card h3 { margin: clamp(0.3rem, 0.7vw, 0.55rem) 0 clamp(0.25rem, 0.5vw, 0.45rem); }
+.card p { font-size: var(--small-size); line-height: 1.6; color: var(--muted); }
+.card.accent { border-color: rgba(216,255,62,0.30); background: var(--accent-soft); }
+.card.accent .num { color: var(--accent); }
+
+/* ===========================================
+   SLIDE 01 — 封面
+   =========================================== */
+.title-slide .slide-content { justify-content: space-between; }
+.title-top {
+  display: flex; justify-content: space-between; align-items: flex-start;
+  gap: 1rem;
+}
+.title-mark {
+  width: clamp(46px, 6vw, 76px); height: clamp(46px, 6vw, 76px);
+  border-radius: clamp(12px, 1.6vw, 20px);
+  box-shadow: 0 0 0 1px var(--line), 0 18px 44px rgba(139,124,255,0.28);
+}
+.title-mid { display: flex; flex-direction: column; gap: clamp(0.6rem, 1.4vw, 1.2rem); }
+.title-sub { font-size: clamp(0.85rem, 1.7vw, 1.4rem); color: var(--muted); max-width: 34ch; line-height: 1.6; }
+.title-meta {
+  display: flex; flex-wrap: wrap; gap: clamp(0.5rem, 1.4vw, 1.4rem);
+  font-family: var(--font-mono); font-size: var(--small-size);
+  color: var(--dim); letter-spacing: .06em; padding-top: clamp(0.4rem, 1vh, 0.9rem);
+  border-top: 1px solid var(--line);
+}
+.title-meta b { color: var(--accent); font-weight: 500; }
+.scroll-hint {
+  font-family: var(--font-mono); font-size: clamp(0.55rem, 0.8vw, 0.7rem);
+  color: var(--dim); letter-spacing: .16em;
+}
+.scroll-hint span { display: inline-block; animation: bob 1.9s ease-in-out infinite; }
+@keyframes bob { 0%,100% { transform: translateY(0); } 50% { transform: translateY(5px); } }
+
+/* ===========================================
+   SLIDE 03 — 截图
+   =========================================== */
+.shot-frame {
+  border: 1px solid var(--line); border-radius: clamp(10px, 1.2vw, 16px);
+  overflow: hidden; background: var(--bg-soft);
+  box-shadow: 0 24px 70px rgba(0,0,0,0.55), 0 0 0 1px rgba(255,255,255,0.03) inset;
+}
+.shot-frame img { display: block; width: 100%; max-height: min(58vh, 460px); object-fit: cover; object-fit: contain; }
+.shot-cap {
+  font-family: var(--font-mono); font-size: clamp(0.55rem, 0.78vw, 0.7rem);
+  color: var(--dim); letter-spacing: .08em; padding: .5rem .8rem;
+  border-top: 1px solid var(--line);
+}
+.bullets { list-style: none; display: flex; flex-direction: column; gap: clamp(0.45rem, 1.1vh, 0.85rem); }
+.bullets li {
+  font-size: var(--body-size); line-height: 1.55; color: var(--muted);
+  padding-left: clamp(1rem, 1.6vw, 1.4rem); position: relative;
+}
+.bullets li::before {
+  content: ""; position: absolute; left: 0; top: .62em;
+  width: clamp(6px, 0.6vw, 9px); height: 1px; background: var(--accent);
+}
+.bullets li b { color: var(--text); font-weight: 500; }
+
+/* ===========================================
+   SLIDE 05 — 架构层
+   =========================================== */
+.stack { display: flex; flex-direction: column; gap: clamp(0.4rem, 0.9vh, 0.7rem); width: 100%; }
+.layer {
+  display: grid; grid-template-columns: clamp(88px, 13vw, 150px) 1fr;
+  gap: clamp(0.7rem, 1.6vw, 1.6rem); align-items: center;
+  background: var(--glass); border: 1px solid var(--line);
+  border-left: 2px solid var(--violet);
+  border-radius: clamp(8px, 0.9vw, 12px);
+  padding: clamp(0.55rem, 1.1vw, 0.95rem) clamp(0.8rem, 1.4vw, 1.2rem);
+}
+.layer:first-child { border-left-color: var(--accent); }
+.layer .lv {
+  font-family: var(--font-mono); font-size: var(--kicker-size);
+  color: var(--dim); letter-spacing: .14em;
+}
+.layer .lv b { color: var(--text); display: block; font-weight: 600; font-size: var(--h3-size);
+  font-family: var(--font-display); letter-spacing: 0; margin-bottom: .15rem; }
+.layer p { font-size: var(--small-size); color: var(--muted); line-height: 1.55; }
+.layer .mono { color: var(--accent); }
+
+/* ===========================================
+   SLIDE 06 — 协议表
+   =========================================== */
+.frame-box {
+  font-family: var(--font-mono);
+  font-size: clamp(0.7rem, 1.35vw, 1.05rem);
+  letter-spacing: .06em;
+  background: rgba(216,255,62,0.05);
+  border: 1px solid rgba(216,255,62,0.24);
+  border-radius: clamp(8px, 1vw, 14px);
+  padding: clamp(0.7rem, 1.4vw, 1.2rem) clamp(0.9rem, 1.8vw, 1.6rem);
+  color: var(--text); overflow: hidden; white-space: nowrap;
+  text-overflow: ellipsis;
+}
+.frame-box em { color: var(--accent); font-style: normal; }
+.frame-box i { color: var(--dim); font-style: normal; }
+.cmd-table { display: flex; flex-direction: column; width: 100%; }
+.cmd-row {
+  display: grid; grid-template-columns: clamp(56px, 7vw, 86px) clamp(70px, 10vw, 118px) 1fr;
+  gap: clamp(0.5rem, 1.2vw, 1rem); align-items: baseline;
+  padding: clamp(0.24rem, 0.55vh, 0.42rem) 0;
+  border-bottom: 1px solid rgba(255,255,255,0.05);
+  font-size: clamp(0.65rem, 1.02vw, 0.86rem);
+}
+.cmd-row:last-child { border-bottom: 0; }
+.cmd-row .code { font-family: var(--font-mono); color: var(--accent); }
+.cmd-row .name { color: var(--text); }
+.cmd-row .desc { color: var(--muted); }
+.cmd-head {
+  font-family: var(--font-mono); font-size: clamp(0.5rem, 0.76vw, 0.66rem);
+  letter-spacing: .14em; color: var(--dim); text-transform: uppercase;
+  border-bottom: 1px solid var(--line);
+}
+
+/* ===========================================
+   SLIDE 07 — 扇区网格
+   =========================================== */
+.sector-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: clamp(4px, 0.7vw, 9px); }
+.sector {
+  border: 1px solid var(--line); border-radius: clamp(5px, 0.5vw, 8px);
+  background: rgba(255,255,255,0.025);
+  padding: clamp(4px, 0.6vw, 7px);
+  display: flex; flex-direction: column; gap: clamp(2px, 0.4vw, 4px);
+}
+.sector .sid {
+  font-family: var(--font-mono); font-size: clamp(0.42rem, 0.62vw, 0.56rem);
+  color: var(--dim); letter-spacing: .06em;
+}
+.sector .blk { height: clamp(3px, 0.5vh, 6px); border-radius: 2px; background: rgba(255,255,255,0.09); }
+.sector .blk.k { background: var(--violet); opacity: .65; }
+.sector.lit { border-color: rgba(216,255,62,0.45); background: var(--accent-soft); }
+.sector.lit .blk { background: rgba(216,255,62,0.35); }
+.sector.lit .blk.k { background: var(--accent); opacity: .85; }
+.legend {
+  display: flex; flex-wrap: wrap; gap: clamp(0.6rem, 1.6vw, 1.4rem);
+  font-family: var(--font-mono); font-size: clamp(0.5rem, 0.76vw, 0.68rem);
+  color: var(--dim); letter-spacing: .06em;
+}
+.legend i { display: inline-block; width: 16px; height: 4px; border-radius: 2px; margin-right: .35rem; vertical-align: middle; }
+
+/* ===========================================
+   SLIDE 08 — 三步流程
+   =========================================== */
+.steps { display: grid; grid-template-columns: repeat(3, 1fr); gap: clamp(0.7rem, 1.6vw, 1.5rem); }
+@media (max-width: 860px) { .steps { grid-template-columns: 1fr; } }
+.step { display: flex; flex-direction: column; gap: clamp(0.3rem, 0.7vw, 0.55rem); }
+.step .big {
+  font-family: var(--font-display); font-weight: 800;
+  font-size: clamp(2.2rem, 5.5vw, 4.4rem); line-height: .85;
+  color: transparent; -webkit-text-stroke: 1px rgba(216,255,62,0.55);
+}
+.step.now .big { color: var(--accent); -webkit-text-stroke: 0; }
+.step h3 { font-family: var(--font-display); font-weight: 600; font-size: var(--h3-size); }
+.step p { font-size: var(--small-size); color: var(--muted); line-height: 1.6; }
+
+/* ===========================================
+   SLIDE 12 — 数字
+   =========================================== */
+.stats { display: grid; grid-template-columns: repeat(4, 1fr); gap: clamp(0.7rem, 1.6vw, 1.6rem); }
+@media (max-width: 860px) { .stats { grid-template-columns: repeat(2, 1fr); } }
+.stat { border-top: 1px solid var(--line); padding-top: clamp(0.5rem, 1vw, 0.9rem); }
+.stat .v {
+  font-family: var(--font-display); font-weight: 800;
+  font-size: clamp(1.7rem, 4.2vw, 3.4rem); line-height: .95; letter-spacing: -.02em;
+}
+.stat .v span { font-size: .42em; color: var(--muted); font-weight: 600; margin-left: .18em; }
+.stat .k {
+  font-size: var(--small-size); color: var(--muted); margin-top: clamp(0.25rem, 0.6vw, 0.5rem); line-height: 1.45;
+}
+.stat.hot .v { color: var(--accent); }
+
+/* ===========================================
+   SLIDE 11 — 对照表
+   =========================================== */
+.vs { display: grid; grid-template-columns: 1fr 1fr; gap: clamp(0.7rem, 1.6vw, 1.5rem); }
+@media (max-width: 860px) { .vs { grid-template-columns: 1fr; } }
+.vs-card { border: 1px solid var(--line); border-radius: clamp(10px, 1.1vw, 16px);
+  padding: clamp(0.85rem, 1.7vw, 1.6rem); background: var(--glass); display: flex; flex-direction: column; gap: clamp(0.35rem, 0.8vw, 0.65rem); }
+.vs-card.pick { border-color: rgba(216,255,62,0.32); background: var(--accent-soft); }
+.vs-card .tag { font-family: var(--font-mono); font-size: clamp(0.5rem, 0.76vw, 0.68rem);
+  letter-spacing: .16em; color: var(--dim); text-transform: uppercase; }
+.vs-card.pick .tag { color: var(--accent); }
+.vs-card h3 { font-family: var(--font-display); font-weight: 700; font-size: var(--h3-size); }
+.vs-card .size { font-family: var(--font-mono); font-size: clamp(0.95rem, 1.9vw, 1.5rem); color: var(--text); }
+.vs-card ul { list-style: none; display: flex; flex-direction: column; gap: clamp(0.2rem, 0.5vw, 0.4rem); }
+.vs-card li { font-size: var(--small-size); color: var(--muted); line-height: 1.5; padding-left: .95rem; position: relative; }
+.vs-card li::before { content: "—"; position: absolute; left: 0; color: var(--dim); }
+
+/* ===========================================
+   SLIDE 13 — 收尾
+   =========================================== */
+.end-slide .slide-content { justify-content: center; gap: var(--content-gap); }
+.end-note {
+  font-size: var(--small-size); color: var(--dim); line-height: 1.7;
+  max-width: 52ch; border-left: 1px solid var(--line); padding-left: clamp(0.7rem, 1.4vw, 1.2rem);
+}
+</style>
+</head>
+<body>
+
+<!-- 背景：光晕 + 网格 -->
+<div class="bg-layer"></div>
+<div class="bg-grid"></div>
+
+<!-- 顶部进度条 -->
+<div class="progress-bar"></div>
+<!-- 右下页码 -->
+<div class="slide-counter"><b id="curNum">01</b> / <span id="totNum">13</span></div>
+<!-- 右侧导航点（由 JS 生成） -->
+<nav class="nav-dots" aria-label="幻灯片导航"></nav>
+
+<main>
+
+<!-- ============ 01 封面 ============ -->
+<section class="slide title-slide">
+  <div class="slide-content">
+    <div class="title-top">
+      <div class="kicker reveal">NFC Mini 2.0 · Windows 桌面端</div>
+      <img class="title-mark reveal" src="assets/app_icon_rounded.png" alt="NFC Mini Studio 图标" />
+    </div>
+
+    <div class="title-mid">
+      <h1 class="display reveal">NFC Mini<br />Studio</h1>
+      <p class="title-sub reveal">把只在微信小程序里能用的蓝牙读卡器，搬进 Windows 桌面。<br />读、写、复制、破解，一个窗口全干完。</p>
+    </div>
+
+    <div>
+      <div class="title-meta reveal">
+        <span>作者 <b>只因君</b></span>
+        <span>版本 <b>1.0.0</b></span>
+        <span>平台 <b>Windows 10 / 11</b></span>
+        <span>许可 <b>免管理员权限</b></span>
+      </div>
+      <p class="scroll-hint reveal" style="margin-top:clamp(.6rem,1.4vh,1.1rem)"><span>▼</span> 滚动或按方向键继续</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 02 缘起 ============ -->
+<section class="slide">
+  <div class="slide-content">
+    <div class="wrap">
+      <div class="kicker reveal">01 — 缘起</div>
+      <h2 class="head reveal">一块能干活的读卡器，被一个微信小程序锁住了</h2>
+      <div class="cols" style="gap:clamp(1rem,3vw,3rem)">
+        <p class="body reveal">NFC Mini 2.0 这块读卡器本身没问题，蓝牙连上就能读能写。麻烦的是它只有小程序一个入口：先开微信，再连手机，然后盯着几寸屏幕一下一下点。想批量导几张卡，手指先酸了。</p>
+        <p class="body reveal">所以把它<strong>私有蓝牙协议</strong>拆出来，重新写了个桌面端。现在它是一份 28 MB 的安装包，双击装好，插上读卡器就能用，不用再经过谁。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 03 界面 ============ -->
+<section class="slide">
+  <div class="slide-content">
+    <div class="wrap">
+      <div class="kicker reveal">02 — 界面</div>
+      <div class="cols wide-right" style="gap:clamp(1rem,2.6vw,2.6rem)">
+        <div class="wrap" style="gap:clamp(.6rem,1.4vw,1.1rem)">
+          <h2 class="head reveal">打开就是这个样子</h2>
+          <ul class="bullets reveal">
+            <li>左侧竖排导航共五项：<b>设备、寻卡读写、密钥破解、卡夹、外观设置</b></li>
+            <li>底部常驻<b>连接状态</b>与<b>运行日志</b>入口</li>
+            <li>深色液态玻璃卡片，圆角，背景可换</li>
+            <li>顶部是 macOS 风格的窗口控制，窗口大小、透明度都能调</li>
+          </ul>
+        </div>
+        <div class="reveal">
+          <div class="shot-frame">
+            <img src="assets/ui_main.png" alt="NFC Mini Studio 主界面" />
+            <div class="shot-cap">NFC Mini Studio v1.0.0 — 设备页实机截图</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 04 六大模块 ============ -->
+<section class="slide">
+  <div class="slide-content">
+    <div class="wrap">
+      <div class="kicker reveal">03 — 能力</div>
+      <h2 class="head reveal">六个模块，把一张卡的路走完</h2>
+      <div class="cards-3">
+        <div class="card reveal"><div class="num">01</div><h3 class="sub">扫描连接</h3><p>扫到附近设备，点一下自动连，直接读出版本、SN、信号强度。</p></div>
+        <div class="card reveal"><div class="num">02</div><h3 class="sub">寻卡</h3><p>实时喊卡，返回卡类型、UID、SAK，UID 卡也能认。</p></div>
+        <div class="card reveal"><div class="num">03</div><h3 class="sub">IC 卡读写</h3><p>16 扇区可视化网格，逐块读、逐块写，密钥 A / B 认证。</p></div>
+        <div class="card reveal"><div class="num">04</div><h3 class="sub">复制 / 粘贴</h3><p>整卡 dump 存进卡夹，再一键写回新卡，克隆一步到位。</p></div>
+        <div class="card reveal"><div class="num">05</div><h3 class="sub">密钥破解</h3><p>四种算法轮流上，支持批量恢复密钥。</p></div>
+        <div class="card reveal"><div class="num">06</div><h3 class="sub">卡夹</h3><p>卡片数据本地留档，随时读取、改名、再次写入。</p></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 05 架构 ============ -->
+<section class="slide">
+  <div class="slide-content">
+    <div class="wrap">
+      <div class="kicker violet reveal">04 — 架构</div>
+      <h2 class="head reveal">四层分工，前端只管好看，后端只管干活</h2>
+      <div class="stack">
+        <div class="layer reveal">
+          <div class="lv"><b>界面层</b>HTML / CSS / JS</div>
+          <p>液态玻璃 UI，跑在 <span class="mono">WebView2</span> 里，改样式不用重编译。</p>
+        </div>
+        <div class="layer reveal">
+          <div class="lv"><b>桥接层</b>pywebview</div>
+          <p>前端与 Python 之间唯一的通道，所有能力以 <span class="mono">js_api</span> 方式挂出去。</p>
+        </div>
+        <div class="layer reveal">
+          <div class="lv"><b>业务层</b>Python</div>
+          <p><span class="mono">api.py</span> 对外接口 · <span class="mono">device.py</span> 设备逻辑 · <span class="mono">protocol.py</span> 协议编解码 · <span class="mono">store.py</span> 设置与卡夹</p>
+        </div>
+        <div class="layer reveal">
+          <div class="lv"><b>传输层</b>bleak</div>
+          <p>BLE GATT 收发：服务 <span class="mono">FFE0</span> / 写 <span class="mono">FFE2</span> / 通知 <span class="mono">FFE1</span>。</p>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 06 协议 ============ -->
+<section class="slide">
+  <div class="slide-content">
+    <div class="wrap">
+      <div class="kicker reveal">05 — 协议</div>
+      <h2 class="head reveal">这套协议是小程序里拆出来的</h2>
+      <div class="frame-box reveal">FF <em>|</em> LEN <em>|</em> MSGID <em>|</em> DATA <em>|</em> SUM <em>|</em> FE &nbsp;&nbsp;<i>// SUM = DATA 逐字节累加 &amp; 0xFF</i></div>
+      <div class="cmd-table reveal">
+        <div class="cmd-row cmd-head"><span>命令码</span><span>功能</span><span>说明</span></div>
+        <div class="cmd-row"><span class="code">0x01</span><span class="name">设备信息</span><span class="desc">版本 / SN / 信号</span></div>
+        <div class="cmd-row"><span class="code">0x11</span><span class="name">寻卡</span><span class="desc">返回卡类型、UID、SAK</span></div>
+        <div class="cmd-row"><span class="code">0x07 / 0x08</span><span class="name">读块 / 写块</span><span class="desc">按扇区 + 块号定位</span></div>
+        <div class="cmd-row"><span class="code">0x0A / 0x0B</span><span class="name">密钥认证 / 全卡扫描</span><span class="desc">A、B 密钥分别校验</span></div>
+        <div class="cmd-row"><span class="code">0x20 · 30 · 32 · 37 · 38</span><span class="name">破解系列</span><span class="desc">四种算法对应不同密钥类型</span></div>
+      </div>
+      <p class="body reveal" style="max-width:70ch">错误码也一并还原了：<span class="mono hl">0</span> 成功 · <span class="mono hl">7</span> 寻卡失败 · <span class="mono hl">8</span> 认证失败 · <span class="mono hl">9</span> 读失败 · <span class="mono hl">10</span> 写失败 · <span class="mono hl">17</span> 检测不到卡片。出了什么问题，日志里直接给你答案。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 07 扇区 ============ -->
+<section class="slide">
+  <div class="slide-content">
+    <div class="wrap">
+      <div class="kicker reveal">06 — 读写</div>
+      <h2 class="head reveal">16 个扇区摆出来，看得见才敢写</h2>
+      <div class="cols" style="gap:clamp(1rem,3vw,3rem); align-items:center">
+        <div class="wrap" style="gap:clamp(.5rem,1.2vw,.95rem)">
+          <ul class="bullets reveal">
+            <li>整卡按 <b>16 扇区 × 4 块</b>铺成网格，哪块读过、哪块写过一目了然</li>
+            <li>读写前先过 <b>密钥 A / B 认证</b>，没认证的块直接拒绝</li>
+            <li>每一次收发都进 <b>运行日志</b>，写错了一块立刻能追回来</li>
+            <li>绿灯那格就是当前操作命中的位置</li>
+          </ul>
+          <div class="legend reveal">
+            <span><i style="background:rgba(255,255,255,.35)"></i>数据块</span>
+            <span><i style="background:var(--violet);opacity:.7"></i>密钥块</span>
+            <span><i style="background:var(--accent)"></i>当前操作</span>
+          </div>
+        </div>
+        <div class="sector-grid reveal" id="sectorGrid" aria-label="扇区网格示意图"></div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 08 克隆 ============ -->
+<section class="slide">
+  <div class="slide-content">
+    <div class="wrap">
+      <div class="kicker violet reveal">07 — 克隆</div>
+      <h2 class="head reveal">克隆一张卡，三步</h2>
+      <div class="steps">
+        <div class="step reveal"><div class="big">01</div><h3>读出整卡</h3><p>寻到卡，认证过，逐个扇区把数据读出来，在网格上看得到进度。</p></div>
+        <div class="step now reveal"><div class="big">02</div><h3>存进卡夹</h3><p>整卡 dump 落到本地卡夹，起个名字，它就一直留着。</p></div>
+        <div class="step reveal"><div class="big">03</div><h3>写回新卡</h3><p>换上一张空白卡，从卡夹里选中，一键写完，完事。</p></div>
+      </div>
+      <p class="body reveal" style="max-width:64ch">卡夹里的数据全在你自己电脑上，落在 <span class="mono">%APPDATA%\NFCMiniStudio</span>，不经过任何服务器。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 09 破解 ============ -->
+<section class="slide">
+  <div class="slide-content">
+    <div class="wrap">
+      <div class="kicker reveal">08 — 密钥</div>
+      <h2 class="head reveal">钥匙丢了，四种方法轮流上</h2>
+      <div class="cards-2" style="grid-template-columns:repeat(4,1fr)">
+        <div class="card reveal"><div class="num">方法 A</div><h3 class="sub">staticnest</h3><p>已知密钥相近时最快。</p></div>
+        <div class="card reveal"><div class="num">方法 B</div><h3 class="sub">hardnested</h3><p>陌生卡的主力算法，啃得慢但啃得动。</p></div>
+        <div class="card reveal"><div class="num">方法 C</div><h3 class="sub">half_decode</h3><p>拿一半线索推另一半。</p></div>
+        <div class="card reveal"><div class="num">方法 D</div><h3 class="sub">FM11RF08S</h3><p>针对这颗芯片的专用路线。</p></div>
+      </div>
+      <div class="cols" style="gap:clamp(1rem,3vw,3rem); margin-top:clamp(.3rem,1vh,.7rem)">
+        <p class="body reveal">支持<b>批量恢复</b>：一次挂上 16 个扇区，跑完哪个通哪个不通，结果直接列出来，不用一个一个试。</p>
+        <p class="body reveal" style="color:var(--dim)">提醒一句：这套功能只该用在你自己的卡上。拿它去开别人的门，跟我们没关系。</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 10 外观 ============ -->
+<section class="slide">
+  <div class="slide-content">
+    <div class="wrap">
+      <div class="kicker violet reveal">09 — 外观</div>
+      <h2 class="head reveal">界面长什么样，你说了算</h2>
+      <div class="cards-3">
+        <div class="card accent reveal"><div class="num">01</div><h3 class="sub">液态玻璃强度</h3><p>毛玻璃的折射与模糊程度可调，从通透到厚重之间随便挑。</p></div>
+        <div class="card reveal"><div class="num">02</div><h3 class="sub">背景壁纸</h3><p>自带几张，也能换自己的图。图片自动同步进前端目录，不用管路径。</p></div>
+        <div class="card reveal"><div class="num">03</div><h3 class="sub">窗口透明度</h3><p>整窗透明度可调，压在别的窗口上面看着不碍事。</p></div>
+      </div>
+      <p class="body reveal" style="max-width:66ch">所有外观设置跟卡夹放在同一个本地目录，换机器拷过去就还是你习惯的样子。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 11 交付 ============ -->
+<section class="slide">
+  <div class="slide-content">
+    <div class="wrap">
+      <div class="kicker reveal">10 — 交付</div>
+      <h2 class="head reveal">两种装法，看你机器上留不留痕</h2>
+      <div class="vs">
+        <div class="vs-card pick reveal">
+          <div class="tag">方式 A · 推荐</div>
+          <h3>一键安装包</h3>
+          <div class="size">28.2 MB <span style="font-size:.6em;color:var(--dim)">单文件</span></div>
+          <ul>
+            <li>图形界面，双击后点「一键安装」</li>
+            <li>自动建桌面 + 开始菜单快捷方式</li>
+            <li>写入卸载登记，可在系统设置里正常卸载</li>
+            <li>免管理员权限，安装盘符可改</li>
+            <li>支持 <span class="mono">--silent</span> 静默安装，方便批量部署</li>
+          </ul>
+        </div>
+        <div class="vs-card reveal">
+          <div class="tag">方式 B · 绿色</div>
+          <h3>免安装版</h3>
+          <div class="size">37.1 MB <span style="font-size:.6em;color:var(--dim)">文件夹</span></div>
+          <ul>
+            <li>整个文件夹拷到 U 盘就能走</li>
+            <li>不写注册表、不建快捷方式</li>
+            <li>适合临时用、或者放在多台机器上轮流跑</li>
+          </ul>
+        </div>
+      </div>
+      <p class="body reveal" style="max-width:66ch">装好之后三步开跑：<b>双击图标 → 插上读卡器 → 点扫描连接</b>。环境只要 Windows 10/11 加 WebView2，Win11 自带，Win10 缺了系统会自己补。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 12 数字 ============ -->
+<section class="slide">
+  <div class="slide-content">
+    <div class="wrap">
+      <div class="kicker reveal">11 — 速览</div>
+      <h2 class="head reveal">几个能记住的数字</h2>
+      <div class="stats">
+        <div class="stat hot reveal"><div class="v">28.2<span>MB</span></div><div class="k">安装包体积，单文件，免管理员权限</div></div>
+        <div class="stat reveal"><div class="v">16<span>扇区</span></div><div class="k">一张 IC 卡的完整数据面，逐块可见可写</div></div>
+        <div class="stat reveal"><div class="v">8<span>类</span></div><div class="k">还原出来的常用命令码，含四路破解指令</div></div>
+        <div class="stat reveal"><div class="v">0<span>依赖</span></div><div class="k">除 WebView2 外不需要额外运行库</div></div>
+      </div>
+      <p class="body reveal" style="max-width:70ch">界面、后端、安装程序全部自己打包，<span class="mono">build_all.py</span> 一条命令跑完两步；源码运行 <span class="mono">python run.py</span> 就行，二次开发不用碰打包流程。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 13 排障 ============ -->
+<section class="slide">
+  <div class="slide-content">
+    <div class="wrap">
+      <div class="kicker reveal">12 — 排障</div>
+      <h2 class="head reveal">「连上了却用不了」先分清断在哪一段</h2>
+      <div class="vs" style="grid-template-columns:repeat(3,1fr); gap:clamp(.6rem,1.6vw,1.2rem)">
+        <div class="vs-card reveal">
+          <div class="tag">第一段 · 发现不了</div>
+          <h3>扫描列表里没有它</h3>
+          <ul>
+            <li>读卡器没开机，或没进入广播</li>
+            <li>被手机微信小程序占着（BLE 单连接，谁先连谁独占）</li>
+            <li>距离过远，或被 USB 3.0 口干扰</li>
+          </ul>
+        </div>
+        <div class="vs-card reveal">
+          <div class="tag">第二段 · 连不上</div>
+          <h3>列表里有，点连接就报错</h3>
+          <ul>
+            <li>设备仍被手机端持有，没真正释放</li>
+            <li>系统里留着旧的配对记录</li>
+            <li>上一次连接没清理干净，端口被占</li>
+          </ul>
+        </div>
+        <div class="vs-card reveal">
+          <div class="tag">第三段 · 不应答</div>
+          <h3>连上了，命令没回音</h3>
+          <ul>
+            <li>点到了列表第一个设备，未必是读卡器</li>
+            <li>写/通知特征对不上，非 FFE2 / FFE1</li>
+            <li>连错设备时更要及时断开，别留悬挂连接</li>
+          </ul>
+        </div>
+      </div>
+      <p class="body reveal" style="max-width:72ch">判定口径：只有握手成功，软件才会把设备 MAC 写进 <span class="mono">settings.json</span> 的 <span class="mono">last_mac</span>。它是空的，就说明这台电脑从来没完成过一次成功握手——问题在蓝牙链路，不在读写逻辑。</p>
+    </div>
+  </div>
+</section>
+
+<!-- ============ 14 收尾 ============ -->
+<section class="slide end-slide">
+  <div class="slide-content">
+    <div class="wrap" style="gap:clamp(.8rem,2.2vw,1.8rem)">
+      <div class="kicker reveal">到此为止</div>
+      <h2 class="head reveal" style="font-size:clamp(1.6rem,4.6vw,3.4rem); max-width:20ch">从一个小程序入口，变成桌面上一个双击就开的工具</h2>
+      <p class="body reveal" style="max-width:56ch">它不复杂，就是把该在电脑上干的事，搬回电脑上干。</p>
+      <div class="title-meta reveal" style="border-top:1px solid var(--line); padding-top:clamp(.6rem,1.6vh,1.1rem)">
+        <span>作者 <b>只因君</b></span>
+        <span>版本 <b>1.0.0</b></span>
+        <span>项目 <b>NFCMiniStudio</b></span>
+      </div>
+      <p class="end-note reveal">破解与克隆功能请仅用于自有卡片和合法授权场景。拿去做别的事，后果自负。</p>
+    </div>
+  </div>
+</section>
+
+</main>
+
+<script>
+/* ===========================================
+   扇区网格生成（16 扇区 × 4 块）
+   纯展示用示意图，不参与业务逻辑
+   =========================================== */
+(function buildSectorGrid() {
+  const host = document.getElementById("sectorGrid");
+  if (!host) return;
+  let html = "";
+  for (let s = 0; s < 16; s++) {
+    const lit = (s === 5) ? " lit" : "";           // 高亮第 6 个扇区做示意
+    let blocks = "";
+    for (let b = 0; b < 4; b++) {
+      blocks += '<div class="blk' + (b === 3 ? " k" : "") + '"></div>';
+    }
+    html += '<div class="sector' + lit + '">'
+          +   '<div class="sid">S' + String(s).padStart(2, "0") + '</div>'
+          +   blocks
+          + '</div>';
+  }
+  host.innerHTML = html;
+})();
+
+/* ===========================================
+   SLIDE PRESENTATION CONTROLLER
+   滚动吸附交给浏览器原生实现；
+   JS 负责进场动画、键盘、导航点、进度与页码。
+   =========================================== */
+class SlidePresentation {
+  constructor() {
+    this.slides = Array.from(document.querySelectorAll(".slide"));
+    this.total = this.slides.length;
+    this.current = 0;
+
+    this.progressEl = document.querySelector(".progress-bar");
+    this.dotsEl = document.querySelector(".nav-dots");
+    this.curNumEl = document.getElementById("curNum");
+    this.totNumEl = document.getElementById("totNum");
+
+    if (this.totNumEl) this.totNumEl.textContent = String(this.total).padStart(2, "0");
+
+    this.setupIntersectionObserver();
+    this.setupKeyboardNav();
+    this.setupNavDots();
+    this.setupProgress();
+    this.updateCounter(0);
+  }
+
+  /* 进场动画：slide 进入视口时加 .visible */
+  setupIntersectionObserver() {
+    this.observer = new IntersectionObserver((entries) => {
+      entries.forEach((entry) => {
+        if (entry.isIntersecting) {
+          entry.target.classList.add("visible");
+          const idx = this.slides.indexOf(entry.target);
+          if (idx > -1) {
+            this.current = idx;
+            this.updateCounter(idx);
+            this.updateDots(idx);
+            this.updateProgress(idx);
+          }
+        }
+      });
+    }, { threshold: 0.45 });
+
+    this.slides.forEach((s) => this.observer.observe(s));
+  }
+
+  /* 键盘导航：方向键 / 空格 / PageUp / PageDown / Home / End */
+  setupKeyboardNav() {
+    document.addEventListener("keydown", (e) => {
+      const editing = e.target && e.target.getAttribute && e.target.getAttribute("contenteditable");
+      if (editing) return;
+
+      const keys = ["ArrowDown", "ArrowUp", "ArrowRight", "ArrowLeft",
+                    "PageDown", "PageUp", " ", "Home", "End"];
+      if (keys.indexOf(e.key) === -1) return;
+
+      if (e.key === "Home") { e.preventDefault(); this.goTo(0); return; }
+      if (e.key === "End") { e.preventDefault(); this.goTo(this.total - 1); return; }
+
+      const forward = (e.key === "ArrowDown" || e.key === "ArrowRight" ||
+                       e.key === "PageDown" || e.key === " ");
+      e.preventDefault();
+      this.goTo(this.current + (forward ? 1 : -1));
+    });
+  }
+
+  /* 导航点：先清空再生成，避免重开文件时叠加 */
+  setupNavDots() {
+    if (!this.dotsEl) return;
+    this.dotsEl.innerHTML = "";
+    this.slides.forEach((slide, i) => {
+      const btn = document.createElement("button");
+      btn.type = "button";
+      btn.setAttribute("aria-label", "第 " + (i + 1) + " 页");
+      btn.addEventListener("click", () => this.goTo(i));
+      this.dotsEl.appendChild(btn);
+    });
+    this.updateDots(0);
+  }
+
+  setupProgress() { this.updateProgress(0); }
+
+  updateDots(idx) {
+    if (!this.dotsEl) return;
+    Array.from(this.dotsEl.children).forEach((d, i) => {
+      d.classList.toggle("is-active", i === idx);
+    });
+  }
+
+  updateProgress(idx) {
+    if (!this.progressEl) return;
+    const pct = this.total > 1 ? (idx / (this.total - 1)) * 100 : 100;
+    this.progressEl.style.width = pct.toFixed(2) + "%";
+  }
+
+  updateCounter(idx) {
+    if (this.curNumEl) this.curNumEl.textContent = String(idx + 1).padStart(2, "0");
+  }
+
+  goTo(idx) {
+    const target = Math.max(0, Math.min(this.total - 1, idx));
+    this.current = target;
+    this.slides[target].scrollIntoView({ behavior: "smooth", block: "start" });
+    // 目标页可能在滚动结束前未触发 observer，先手动同步一次状态
+    this.updateCounter(target);
+    this.updateDots(target);
+    this.updateProgress(target);
+  }
+}
+
+new SlidePresentation();
+</script>
+</body>
+</html>

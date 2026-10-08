@@ -1,0 +1,680 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>NFC Mini Studio</title>
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+
+<!-- ============ 背景层（液态玻璃折射底） ============ -->
+<div class="bg" id="bg">
+  <div class="bg-blob b1"></div>
+  <div class="bg-blob b2"></div>
+  <div class="bg-blob b3"></div>
+  <div class="bg-blob b4"></div>
+  <div class="bg-blob b5"></div>
+  <div class="bg-grain"></div>
+  <div class="bg-vignette"></div>
+</div>
+
+<!-- ============ 应用主体（macOS 窗口观感） ============ -->
+<div class="app">
+
+  <!-- 侧边栏 -->
+  <aside class="sidebar glass">
+    <div class="brand pywebview-drag-region">
+      <div class="logo"><span>N</span></div>
+      <div class="brand-text">
+        <h1>NFC Mini Studio</h1>
+        <span>IC 卡读写 · 破解 · 复制</span>
+      </div>
+    </div>
+
+    <nav class="nav">
+      <button class="nav-item is-active" data-view="device">
+        <i class="ico ico-device"></i><span>设备</span>
+      </button>
+      <button class="nav-item" data-view="card">
+        <i class="ico ico-card"></i><span>寻卡读写</span>
+      </button>
+      <button class="nav-item" data-view="crack">
+        <i class="ico ico-crack"></i><span>密钥破解</span>
+      </button>
+      <button class="nav-item" data-view="box">
+        <i class="ico ico-box"></i><span>卡夹</span>
+      </button>
+      <button class="nav-item" data-view="settings">
+        <i class="ico ico-gear"></i><span>外观设置</span>
+      </button>
+    </nav>
+
+    <div class="sidebar-foot">
+      <div class="conn-pill" id="connPill"><i class="dot-mini"></i><span>未连接</span></div>
+      <button class="btn ghost sm full" id="btnLog">运行日志</button>
+    </div>
+  </aside>
+
+  <!-- 主区域 -->
+  <main class="main">
+    <header class="titlebar pywebview-drag-region">
+      <div class="win-controls">
+        <button class="wdot close" id="wClose" title="关闭"></button>
+        <button class="wdot min"   id="wMin"   title="最小化"></button>
+        <button class="wdot max"   id="wMax"   title="最大化"></button>
+      </div>
+      <div class="titlebar-title" id="tbTitle">设备</div>
+      <div class="titlebar-right"><span id="tbHint">等待操作</span></div>
+    </header>
+
+    <div class="views" id="views">
+
+      <!-- ==================== 设备 ==================== -->
+      <section class="view is-active" id="view-device">
+
+        <div class="grid-device">
+
+          <!-- 设备外观 3D -->
+          <div class="card glass showcase">
+            <div class="card-head">
+              <h2>设备外观</h2>
+              <span class="badge" id="ledBadge">未连接</span>
+            </div>
+            <div class="stage" id="deviceStage">
+              <div class="stage-halo"></div>
+              <div class="stage-orbit o1"></div>
+              <div class="stage-orbit o2"></div>
+              <div class="dev3d" id="deviceModel">
+                <div class="d3-face d3-front">
+                  <img class="d3-photo" id="deviceFace" src="assets/device_front_view.svg"
+                       alt="NFC Mini 2.0 读卡器正视图" draggable="false">
+                  <span class="d3-glare"></span>
+                  <span class="d3-led" id="devLed"></span>
+                </div>
+                <div class="d3-face d3-back">
+                  <div class="d3-back-plate">
+                    <span class="d3-back-logo">NFC</span>
+                    <span class="d3-back-text mono">NFC Mini 2.0<br>BLE 5.0 · 13.56 MHz</span>
+                    <span class="d3-back-sn mono" id="d3Sn">SN —</span>
+                  </div>
+                </div>
+                <!-- 机身厚度：由 initDevice3D() 注入多层「同形圆角」切片，取代原先会露出直角的四块侧板 -->
+                <div class="d3-shell" id="d3Shell" aria-hidden="true"></div>
+              </div>
+              <div class="dev-shadow"></div>
+              <div class="dev-floor"></div>
+            </div>
+            <p class="hint center">按住设备左右拖动可手动旋转；指示灯随连接与读写状态联动。</p>
+            <div class="row center">
+              <button class="btn ghost sm" id="btnSpinToggle">暂停旋转</button>
+              <button class="btn ghost sm" id="btnSpinReset">正对复位</button>
+            </div>
+            <label class="field range-field">
+              <span>自转速度 <b id="lblSpin">18</b> °/s</span>
+              <input type="range" id="rngSpin" min="0" max="60" value="18">
+            </label>
+          </div>
+
+          <!-- 连接 -->
+          <div class="card glass">
+            <div class="card-head">
+              <h2>连接方式</h2>
+              <span class="badge" id="scanBadge">就绪</span>
+            </div>
+
+            <div class="seg" id="connSeg">
+              <button class="seg-item is-active" id="tabBle">蓝牙无线</button>
+              <button class="seg-item" id="tabUsb">USB 有线</button>
+            </div>
+
+            <div class="pane" id="paneBle">
+              <div class="row">
+                <button class="btn primary lg" id="btnScan">一键扫描设备</button>
+                <button class="btn" id="btnQuickConnect">扫描并直连</button>
+              </div>
+              <div class="scanline" id="scanline"><span></span></div>
+              <ul class="dev-list" id="devList">
+                <li class="empty">点击「一键扫描设备」开始搜索附近的读卡器</li>
+              </ul>
+            </div>
+
+            <div class="pane is-hidden" id="paneUsb">
+              <div class="row wrap">
+                <label class="field">
+                  <span>波特率</span>
+                  <select class="input" id="baudSel"></select>
+                </label>
+                <button class="btn primary" id="btnScanPorts">枚举串口</button>
+                <button class="btn" id="btnProbePort">握手测试</button>
+              </div>
+              <ul class="dev-list" id="portList">
+                <li class="empty">点击「枚举串口」列出本机 USB 串口设备</li>
+              </ul>
+              <p class="hint">USB 模式会自动排除蓝牙虚拟串口；若列表为空，请先安装 CH340 / CP210x 驱动。</p>
+
+              <div class="wired-block">
+                <div class="card-head">
+                  <h2>USB 直连（厂商通道）</h2>
+                  <span class="badge" id="wiredBadge">未连接</span>
+                </div>
+                <div class="row wrap">
+                  <button class="btn primary" id="btnScanWired">发现有线设备</button>
+                  <button class="btn" id="btnProbeWired">握手探测</button>
+                  <button class="btn danger" id="btnWiredDisconnect">断开有线</button>
+                </div>
+                <ul class="dev-list" id="wiredList">
+                  <li class="empty">点「发现有线设备」枚举本机 USB（厂商自定义类 + Bulk 端点）</li>
+                </ul>
+                <div class="row wrap">
+                  <label class="field grow">
+                    <span>试发帧（十六进制）</span>
+                    <input class="input mono" id="wiredFrame" spellcheck="false"
+                           value="FF 01 01 01 01 FE">
+                  </label>
+                  <button class="btn primary" id="btnSendWired">试发帧</button>
+                  <button class="btn ghost" id="btnClearWiredLog">清空收发日志</button>
+                </div>
+                <div class="raw-log mono" id="wiredLog"><span class="empty">原始收发日志为空</span></div>
+                <p class="hint" id="wiredHint">有线通道走厂商自定义接口的 Bulk 端点（本机实测：OUT 0x01 / IN 0x81，64 字节）。默认帧是本项目协议的 INFO 帧；本机实测该设备与 6 字节私有帧均暂无应答，这里会如实显示「帧已发出、无应答」，不会假装成功。</p>
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <div class="card glass">
+          <div class="card-head">
+            <h2>设备信息</h2>
+            <span class="badge" id="connBadge">未连接</span>
+          </div>
+          <div class="kv-grid" id="devInfo">
+            <div class="kv"><label>连接状态</label><b id="kvState">未连接</b></div>
+            <div class="kv"><label>连接通道</label><b id="kvMode">—</b></div>
+            <div class="kv"><label>MAC / 端口</label><b id="kvMac" class="mono">—</b></div>
+            <div class="kv"><label>固件版本</label><b id="kvVer">—</b></div>
+            <div class="kv"><label>设备序列号</label><b id="kvSn" class="mono">—</b></div>
+            <div class="kv"><label>卡上芯片</label><b id="kvChip">—</b></div>
+          </div>
+          <div class="row mt">
+            <button class="btn" id="btnRefreshInfo">刷新信息</button>
+            <button class="btn danger" id="btnDisconnect">断开连接</button>
+          </div>
+          <p class="hint">蓝牙连接前，请先让读卡器与手机微信断开。</p>
+        </div>
+      </section>
+
+      <!-- ==================== 寻卡读写 ==================== -->
+      <section class="view" id="view-card">
+        <div class="grid-2">
+          <div class="card glass card-find">
+            <div class="find-visual">
+              <div class="chip-card" id="chipCard">
+                <div class="chip"></div>
+                <div class="wave"></div>
+                <div class="chip-uid" id="chipUid">—— —— —— ——</div>
+                <div class="chip-class" id="chipClass">等待寻卡</div>
+              </div>
+            </div>
+            <div class="find-info">
+              <div class="card-head">
+                <h2>寻卡</h2>
+              </div>
+              <button class="btn primary lg" id="btnFind">一键寻卡</button>
+              <div class="kv-grid compact">
+                <div class="kv"><label>UID</label><b id="fUid" class="mono">—</b></div>
+                <div class="kv"><label>卡片类别</label><b id="fClass">—</b></div>
+                <div class="kv"><label>固件卡类型</label><b id="fType">—</b></div>
+                <div class="kv"><label>SAK</label><b id="fSak" class="mono">—</b></div>
+                <div class="kv"><label>UID 卡</label><b id="fIsUid">—</b></div>
+                <div class="kv"><label>频段</label><b id="fBand">—</b></div>
+              </div>
+              <div class="row">
+                <button class="btn" id="btnCopyUid">复制 UID</button>
+                <button class="btn ghost" id="btnBug">漏洞卡检测</button>
+              </div>
+            </div>
+          </div>
+
+          <div class="card glass">
+            <div class="card-head">
+              <h2>自动破解（后台级联）</h2>
+              <span class="badge" id="autoCrackBadge">待寻卡</span>
+            </div>
+            <p class="hint">寻卡成功后自动在后台按顺序尝试多种破解方式，前一种失败自动切换下一种，不阻塞读卡。</p>
+            <div class="progress with-idle is-idle" id="crackProg" data-idle="等待寻卡">
+              <span id="crackBar"></span>
+            </div>
+            <div class="progress-info">
+              <b id="crackPct">0%</b><span id="crackMeta">等待寻卡</span>
+            </div>
+            <div class="chain-mini" id="chainMini"></div>
+            <div class="row mt">
+              <button class="btn" id="btnCrackAgain">重新破解</button>
+            </div>
+            <div class="result-box" id="crackResultMini">
+              <p class="hint">破解结果会显示在这里。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card glass">
+          <div class="card-head">
+            <h2>扇区数据</h2>
+            <span class="badge" id="dumpBadge">未读取</span>
+          </div>
+          <div class="sector-tools">
+            <label class="field">
+              <span>默认密钥</span>
+              <input class="input mono" id="keyInput" maxlength="17" value="FFFFFFFFFFFF">
+            </label>
+            <label class="field">
+              <span>密钥类型</span>
+              <select class="input" id="keyType">
+                <option value="0">KEY A</option>
+                <option value="1">KEY B</option>
+              </select>
+            </label>
+            <div class="sector-actions">
+              <button class="btn primary" id="btnDump">读取整卡</button>
+              <button class="btn" id="btnWriteAll">写入整卡</button>
+              <button class="btn ghost" id="btnClearDump">清空</button>
+            </div>
+          </div>
+
+          <div class="progress-stack">
+            <div class="progress-block">
+              <div class="progress-head"><span>读卡进度</span><b id="dumpPct">0%</b></div>
+              <div class="progress with-idle is-idle" id="dumpProg" data-idle="等待读取整卡">
+                <span id="dumpBar"></span>
+              </div>
+              <div class="progress-info"><span id="dumpMeta">等待读取</span><em id="dumpTime">—</em></div>
+            </div>
+
+            <div class="progress-block">
+              <div class="progress-head"><span>写卡进度</span><b id="writePct">0%</b></div>
+              <div class="progress with-idle is-idle" id="writeProg" data-idle="等待写入卡片">
+                <span id="writeBar"></span>
+              </div>
+              <div class="progress-info"><span id="writeMeta">等待写入</span><em id="writeTime">—</em></div>
+            </div>
+          </div>
+
+          <div class="sectors" id="sectors"></div>
+        </div>
+
+        <!-- P0 · 独立写卡流程（0x0C / 0x16 / 0x18 / 0x08 + 写前卡号校验） -->
+        <div class="grid-2 mt">
+          <div class="card glass">
+            <div class="card-head">
+              <h2>独立写卡</h2>
+              <span class="badge" id="writeCardBadge">待写卡</span>
+            </div>
+            <p class="hint">命令对齐微信小程序「宜新 NFC Reader Tool」：写卡号 0x0C、极速写块 0x16、普通写块 0x18、带密钥类型写块 0x08；写前先用 0x24 / 0x26 做卡号校验。</p>
+            <div class="sector-tools">
+              <label class="field">
+                <span>写卡档位</span>
+                <select class="input" id="wMode"></select>
+              </label>
+              <label class="field grow">
+                <span>待写卡号（ID 卡 / 转接卡，10 位 Hex）</span>
+                <input class="input mono" id="wCardNo" maxlength="12" placeholder="0A1B2C3D4E"
+                       spellcheck="false">
+              </label>
+            </div>
+            <div class="row mt">
+              <label class="check">
+                <input type="checkbox" id="wCheckNo" checked><span>写前校验卡号</span>
+              </label>
+              <label class="check">
+                <input type="checkbox" id="wVerify" checked><span>写后回读校验</span>
+              </label>
+            </div>
+            <div class="row mt">
+              <button class="btn" id="btnReadNo">读取当前卡号</button>
+              <button class="btn" id="btnWriteNo">仅写卡号（0x0C）</button>
+              <button class="btn primary" id="btnWriteCard">开始写卡</button>
+            </div>
+            <div class="progress with-idle is-idle" id="writeCardProg" data-idle="等待写卡">
+              <span id="writeCardBar"></span>
+            </div>
+            <div class="progress-info">
+              <b id="writeCardPct">0%</b><span id="writeCardMeta">等待写卡</span><em id="writeCardTime">—</em>
+            </div>
+            <div class="result-box" id="writeCardResult">
+              <p class="hint">写卡结果（含卡号校验结论、每一步命令与耗时）会显示在这里。</p>
+            </div>
+          </div>
+
+          <div class="card glass">
+            <div class="card-head">
+              <h2>读 ID 卡 / 低频卡频率</h2>
+              <span class="badge" id="idCardBadge">未读取</span>
+            </div>
+            <p class="hint">对应小程序 0x26 命令：读取 ID 卡（低频卡）卡号，并解析其工作频率档位（125 / 250 / 375 / 500 kHz）。</p>
+            <div class="row">
+              <button class="btn primary" id="btnReadIdCard">读取 ID 卡（0x26）</button>
+            </div>
+            <div class="kv-grid compact">
+              <div class="kv"><label>卡号</label><b id="idNo" class="mono">—</b></div>
+              <div class="kv"><label>卡号（十进制）</label><b id="idDec" class="mono">—</b></div>
+              <div class="kv"><label>工作频率</label><b id="idFreq">—</b></div>
+              <div class="kv"><label>频率档位</label><b id="idFreqId">—</b></div>
+              <div class="kv"><label>卡类型</label><b id="idType">—</b></div>
+              <div class="kv"><label>卡代码</label><b id="idCode" class="mono">—</b></div>
+              <div class="kv"><label>设施码</label><b id="idFacility" class="mono">—</b></div>
+              <div class="kv"><label>原始帧</label><b id="idRaw" class="mono">—</b></div>
+            </div>
+          </div>
+        </div>
+
+        <!-- P1 · 写录手机 / 手环 NFC（0x27 转接卡两步法，须与写 UID / 魔术卡区分） -->
+        <div class="card glass mt">
+          <div class="card-head">
+            <h2>写录手机 / 手环 NFC</h2>
+            <span class="badge" id="phoneNfcBadge">待写录</span>
+          </div>
+          <p class="hint">命令语义对齐小程序 card-write 页的「写手机 / 手环」：<b>转接卡两步法</b> ——
+            0x0C 写卡号 → 0x26 回读 → 0x27 生成转接卡 → 0x16 / 0x18 写 IC 数据。
+            该流程与「写 UID / 魔术卡」（0x27 直接改写卡片 UID）、「封卡」（0x17 单字节，不可逆）是
+            <b>不同流程</b>，请勿混用。</p>
+          <div class="sector-tools">
+            <label class="field">
+              <span>转接卡 UID（6 字节 Hex，可空）</span>
+              <input class="input mono" id="pnUid" maxlength="14" placeholder="04A1B2C3D4E5"
+                     spellcheck="false">
+            </label>
+            <label class="field grow">
+              <span>要模拟的卡号（10 位 Hex，可空）</span>
+              <input class="input mono" id="pnCardNo" maxlength="12" placeholder="0A1B2C3D4E"
+                     spellcheck="false">
+            </label>
+            <label class="field">
+              <span>写块档位</span>
+              <select class="input" id="pnMode"></select>
+            </label>
+          </div>
+          <div class="row mt">
+            <label class="check">
+              <input type="checkbox" id="pnPrepOnly"><span>仅生成转接卡（不写 IC 数据）</span>
+            </label>
+            <label class="check">
+              <input type="checkbox" id="pnCheckNo" checked><span>写前卡号校验（0x24 + 0x26）</span>
+            </label>
+            <label class="check">
+              <input type="checkbox" id="pnVerify" checked><span>写后回读校验</span>
+            </label>
+          </div>
+          <div class="row mt">
+            <button class="btn primary" id="btnWritePhoneNfc">写入手机 / 手环</button>
+            <button class="btn" id="btnPhoneNfcSteps">查看步骤</button>
+            <button class="btn ghost" id="btnWriteUidCard">写 UID / 生成转接卡（0x27）</button>
+          </div>
+          <div class="row mt">
+            <label class="check">
+              <input type="checkbox" id="lockConfirm"><span>我已知晓：封卡 / 锁卡不可逆</span>
+            </label>
+            <button class="btn danger" id="btnLockUfuid">封卡 UFUID（0x17）</button>
+            <button class="btn danger" id="btnLockCard">锁卡（0x23）</button>
+          </div>
+          <div class="progress with-idle is-idle" id="phoneNfcProg" data-idle="等待写录">
+            <span id="phoneNfcBar"></span>
+          </div>
+          <div class="progress-info">
+            <b id="phoneNfcPct">0%</b><span id="phoneNfcMeta">等待写录</span><em id="phoneNfcTime">—</em>
+          </div>
+          <div class="result-box" id="phoneNfcResult">
+            <p class="hint">转接卡步骤清单与回读结论（含 0x27 是否命中桥卡）会显示在这里。</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 破解 ==================== -->
+      <section class="view" id="view-crack">
+        <div class="grid-2">
+          <div class="card glass">
+            <div class="card-head">
+              <h2>破解方式（自动级联）</h2>
+              <span class="badge" id="chainBadge">0 / 6</span>
+            </div>
+            <div class="method-list" id="methodList"></div>
+          </div>
+          <div class="card glass">
+            <div class="card-head">
+              <h2>执行</h2>
+              <span class="badge" id="crackStateBadge">就绪</span>
+            </div>
+            <label class="field">
+              <span>目标扇区</span>
+              <select class="input" id="crackSector"></select>
+            </label>
+            <label class="field">
+              <span>密钥类型</span>
+              <select class="input" id="crackKeyType">
+                <option value="0">KEY A</option>
+                <option value="1">KEY B</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>单方式超时（秒）</span>
+              <input class="input" id="crackTimeout" type="number" value="25" min="5" max="600">
+            </label>
+            <button class="btn primary lg full" id="btnCrack">手动级联破解</button>
+
+            <div class="progress-block">
+              <div class="progress-head"><span>破解进度</span><b id="crackBigPct">0%</b></div>
+              <div class="progress lg with-idle is-idle" id="crackBigProg" data-idle="等待开始破解">
+                <span id="crackBigBar"></span>
+              </div>
+              <div class="progress-info"><span id="crackBigMeta">等待开始</span><em id="crackBigTime">—</em></div>
+            </div>
+
+            <div class="attempts" id="crackAttempts"></div>
+            <div class="result-box" id="crackResult">
+              <p class="hint">破解结果将显示在这里。</p>
+            </div>
+            <p class="note">破解时请保持卡片贴在读卡器上。硬嵌套耗时较长，可随时中止。</p>
+            <div class="row mt">
+              <button class="btn ghost" id="btnCrackCancel">中止破解</button>
+            </div>
+          </div>
+        </div>
+
+        <!-- P1 · 自动识别卡片 / 一键破解扫描（0x38 自动识别，0x11 兜底） -->
+        <div class="card glass mt">
+          <div class="card-head">
+            <h2>自动识别卡片 / 一键破解扫描</h2>
+            <span class="badge" id="scanBadge">待扫描</span>
+          </div>
+          <p class="hint">先发 <b>0x38 自动识别卡片</b>（单字节 DATA）读回卡号 / 卡类型 / 卡代码 / 设施码；
+            0x38 未命中或返回非 ID 卡时自动回落 <b>0x11 寻卡</b>判类型，再按卡类型决定是否启动后台级联破解
+            （ID 卡无密钥概念 → 跳过）。<span class="mono">注意：staticnested 变体破解同为 0x38 但带载荷，
+            自动识别是单字节，设备靠 DATA 长度区分。</span></p>
+          <div class="row">
+            <button class="btn primary" id="btnAutoIdentify">自动识别卡片（0x38）</button>
+            <button class="btn primary" id="btnCrackScan">一键破解扫描</button>
+            <button class="btn" id="btnCardNoValid">卡号校验（0x24）</button>
+          </div>
+          <div class="row mt">
+            <label class="check">
+              <input type="checkbox" id="scanAutoCrack" checked><span>扫描命中 IC 卡后自动后台破解</span>
+            </label>
+          </div>
+          <div class="progress with-idle is-idle" id="scanProg" data-idle="等待扫描">
+            <span id="scanBar"></span>
+          </div>
+          <div class="progress-info">
+            <b id="scanPct">0%</b><span id="scanMeta">等待扫描</span><em id="scanTime">—</em>
+          </div>
+          <div class="kv-grid compact mt">
+            <div class="kv"><label>识别来源</label><b id="scanSource">—</b></div>
+            <div class="kv"><label>卡号</label><b id="scanNo" class="mono">—</b></div>
+            <div class="kv"><label>卡类型</label><b id="scanType">—</b></div>
+            <div class="kv"><label>卡代码</label><b id="scanCode" class="mono">—</b></div>
+            <div class="kv"><label>设施码</label><b id="scanFacility" class="mono">—</b></div>
+            <div class="kv"><label>破解建议</label><b id="scanAdvice">—</b></div>
+          </div>
+          <div class="result-box" id="scanResult">
+            <p class="hint">识别结论、卡号校验状态与破解建议会显示在这里。</p>
+          </div>
+        </div>
+      </section>
+
+      <!-- ==================== 卡夹 ==================== -->
+      <section class="view" id="view-box">
+        <div class="card glass">
+          <div class="card-head">
+            <h2>卡夹</h2>
+            <span class="badge" id="boxBadge">0 张</span>
+          </div>
+          <div class="row wrap">
+            <button class="btn primary lg" id="btnCopyCard">一键复制卡（读整卡入夹）</button>
+            <button class="btn" id="btnImportCard">导入卡片文件</button>
+            <button class="btn ghost" id="btnRefreshBox">刷新</button>
+          </div>
+          <p class="hint">「复制」= 读取当前卡的 64 个数据块并存入卡夹（同时后台自动破解）；「粘贴写卡」= 把卡夹中的数据逐块写回目标卡并回读校验。</p>
+
+          <div class="progress-block">
+            <div class="progress-head"><span>复制 / 粘贴进度</span><b id="copyPct">0%</b></div>
+            <div class="progress"><span id="copyBar"></span></div>
+            <div class="progress-info"><span id="copyMeta">等待操作</span><em id="copyTime">—</em></div>
+          </div>
+
+          <div class="card-grid" id="cardGrid"></div>
+        </div>
+      </section>
+
+      <!-- ==================== 设置 ==================== -->
+      <section class="view" id="view-settings">
+        <div class="grid-2">
+          <div class="card glass">
+            <div class="card-head"><h2>背景外观</h2></div>
+            <div class="wall-grid" id="wallGrid"></div>
+            <div class="row mt">
+              <button class="btn primary" id="btnPickWall">选择本地图片</button>
+              <button class="btn ghost" id="btnClearWall">恢复内置背景</button>
+            </div>
+            <label class="field range-field">
+              <span>玻璃模糊 <b id="lblBlur">26</b></span>
+              <input type="range" id="rngBlur" min="0" max="100" value="26">
+            </label>
+            <label class="field range-field">
+              <span>玻璃乳白度 <b id="lblAlpha">4</b>（越低越通透）</span>
+              <input type="range" id="rngAlpha" min="0" max="60" value="4">
+            </label>
+          </div>
+
+          <div class="card glass">
+            <div class="card-head"><h2>读写与破解默认值</h2></div>
+            <label class="field">
+              <span>默认密钥（12 位 Hex）</span>
+              <input class="input mono" id="setKey" maxlength="17" value="FFFFFFFFFFFF">
+            </label>
+            <label class="field">
+              <span>密钥类型</span>
+              <select class="input" id="setKeyType">
+                <option value="0">KEY A</option>
+                <option value="1">KEY B</option>
+              </select>
+            </label>
+            <label class="field">
+              <span>自动破解目标扇区</span>
+              <select class="input" id="setCrackSector"></select>
+            </label>
+            <label class="field">
+              <span>单方式超时（秒）</span>
+              <input class="input" id="setCrackTimeout" type="number" value="25" min="5" max="600">
+            </label>
+            <label class="check">
+              <input type="checkbox" id="setAutoCrack"><span>寻卡后自动后台破解</span>
+            </label>
+            <label class="check">
+              <input type="checkbox" id="setAutoFind"><span>连接后自动寻卡</span>
+            </label>
+            <button class="btn primary" id="btnSaveSet">保存设置</button>
+
+            <div class="about">
+              <h3>关于</h3>
+              <p>NFC Mini Studio <b id="aboutVer">2.2.0</b></p>
+              <p class="hint">协议来自 NFC Mini 2.0 微信小程序 BLE 私有协议逆向，仅供自有设备研究使用。</p>
+            </div>
+          </div>
+        </div>
+
+        <div class="card glass mt">
+          <div class="card-head">
+            <h2>破解模式（云端解算 / 本地离线）</h2>
+            <span class="badge" id="crackModeBadge">读取中…</span>
+          </div>
+          <div class="seg" id="crackModeSeg">
+            <button class="seg-item is-active" id="modeCloud">云端解算</button>
+            <button class="seg-item" id="modeLocal">本地离线</button>
+          </div>
+          <p class="hint" id="crackModeHint">云端解算失败或超时后自动降级本地 mfkey32。</p>
+
+          <div class="grid-2 mt">
+            <label class="field">
+              <span>云端解算接口地址（默认官方 recovery 地址，可替换）</span>
+              <input class="input mono" id="setCloudEndpoint" placeholder="https://nfctools.nfcreader.net/nice-json/mini-program/v1/recovery/mfkey32v2">
+            </label>
+            <label class="field">
+              <span>云端 token（需填自己账号的登录态 token）</span>
+              <input class="input mono" id="setCloudToken" type="password" placeholder="粘贴登录态 token（留空 = 保持不变）">
+            </label>
+          </div>
+          <p class="hint">token 来源：微信小程序「宜新 NFC Reader Tool」登录账号后，请求头 NICETHEME 的值（登录态、会过期，需自行获取粘贴）。密钥库接口用的厂商内置凭据已随软件内置，无需填写；未填 token 时云端会跳过并自动降级本地 mfkey32。</p>
+
+          <div class="row wrap mt">
+            <label class="field grow">
+              <span>云端超时（秒，超时自动降级本地）</span>
+              <input class="input" id="setCloudTimeout" type="number" value="8" min="1" max="120">
+            </label>
+            <button class="btn ghost" id="btnVerifyLocal">验证本地算法</button>
+          </div>
+          <p class="hint" id="crackVerifyOut">点「验证本地算法」跑一遍官方 mfkey32 测试向量，确认本机离线算法可用。</p>
+        </div>
+      </section>
+
+    </div>
+  </main>
+</div>
+
+<!-- ============ 全局进度浮层 ============ -->
+<div class="progress-dock glass" id="progDock">
+  <div class="progress-dock-head">
+    <span class="dot-live" id="progDot"></span>
+    <b id="progTitle">空闲</b>
+    <em id="progPct">0%</em>
+  </div>
+  <div class="progress"><span id="progBar"></span></div>
+  <div class="progress-info"><span id="progMeta">—</span><em id="progTime">—</em></div>
+</div>
+
+<!-- ============ 日志抽屉 ============ -->
+<div class="log-drawer glass" id="logDrawer">
+  <div class="log-head">
+    <h3>运行日志</h3>
+    <div class="row">
+      <button class="btn ghost sm" id="btnClearLog">清空</button>
+      <button class="btn ghost sm" id="btnCloseLog">收起</button>
+    </div>
+  </div>
+  <div class="log-body mono" id="logBody"></div>
+</div>
+
+<!-- ============ 通用弹层 ============ -->
+<div class="modal-mask" id="modalMask">
+  <div class="modal glass" id="modalBox">
+    <h3 id="modalTitle">确认</h3>
+    <p id="modalText"></p>
+    <div class="modal-actions">
+      <button class="btn ghost" id="modalCancel">取消</button>
+      <button class="btn primary" id="modalOk">确认</button>
+    </div>
+  </div>
+</div>
+
+<div class="toasts" id="toasts"></div>
+
+<script src="js/app.js"></script>
+</body>
+</html>
