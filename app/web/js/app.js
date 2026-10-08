@@ -2274,6 +2274,7 @@ function bindUI() {
   if ($('#keyboxVerify')) $('#keyboxVerify').onclick = doKeyboxVerify;
   if ($('#btnFormatCard')) $('#btnFormatCard').onclick = doFormatCard;
   if ($('#btnSniffRun')) $('#btnSniffRun').onclick = doSniffRun;
+  if ($('#btnCloudCrack')) $('#btnCloudCrack').onclick = doCloudCrack;
 
   /* 设置 */
   if ($('#btnPickWall')) {
@@ -2467,6 +2468,29 @@ async function doKeyboxAdd() {
   } catch (e) { toast('添加失败：' + e.message, 'err'); }
 }
 
+async function doCloudCrack() {
+  if (!state.connected) { toast('请先连接读卡器', 'err'); return; }
+  const ok = await confirmBox('云端破解（keygen 密钥库）',
+    '流程：寻卡拿 UID → 云端 keygen 返回该卡候选密钥全表 → 设备批量验证筛出真密钥。\n' +
+    '官方同款路径，密钥多时可能耗时 1~3 分钟。\n\n确定开始吗？');
+  if (!ok) return;
+  try {
+    busy(true, '云端破解中…');
+    setLed('busy');
+    setBadge('#crackStateBadge', '云端破解中', 'info live');
+    log('云端破解：keygen 查询 → 批量验证…', 'info');
+    const r = await api('auto_crack_chain', +($('#setCrackSector') ? $('#setCrackSector').value : 0) || 0, '');
+    const key = r.key || (r.keys && r.keys[0]) || '';
+    toast(key ? `破解成功：密钥 ${key}` : '未命中密钥', key ? 'ok' : 'warn');
+    log(`云端破解结果：${key || '未命中'}（候选 ${r.candidates || 0} 把，试了 ${r.tried || 0} 把，来源 ${r.source || ''}）`, key ? 'ok' : 'warn');
+    setBadge('#crackStateBadge', key ? '破解成功' : '未命中', key ? 'ok' : 'warn');
+    if (key) { showCrackKeys([key], r.sector == null ? 0 : r.sector); loadKeybox('history'); }
+  } catch (e) {
+    toast('云端破解失败：' + e.message, 'err');
+    log('云端破解失败：' + e.message, 'err');
+    setBadge('#crackStateBadge', '失败', 'err');
+  } finally { busy(false); setLed(state.connected ? 'on' : ''); }
+}
 async function doSniffRun() {
   if (!state.connected) { toast('请先连接读卡器', 'err'); return; }
   const ok = await confirmBox('侦测读卡（0x34/0x35/0x36）',

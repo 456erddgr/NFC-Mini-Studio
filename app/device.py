@@ -613,7 +613,7 @@ class NfcDevice:
         raise NfcError(f"密钥认证失败（已依次尝试 KEY A / KEY B）：{last}", 8)
 
     def batch_verify(self, keys, block: int = 0, key_type: int = 0, timeout: float = 4.0,
-                     progress=None, should_stop=None) -> dict:
+                     progress=None, should_stop=None, stop_on_hit: bool = True) -> dict:
         """批量验证密钥（对齐小程序「密钥缓存 + 批量验证」0x40/0x41 的功能语义）。
 
         逐个用 0x0A 认证设备端验证；命中的密钥即该扇区可用密钥。
@@ -634,6 +634,9 @@ class NfcDevice:
                 self.auth(block, key, key_type, timeout=timeout)
                 hits.append({"key": key.hex().upper(), "key_type": int(key_type) & 1,
                              "block": int(block) & 0xFF})
+                if stop_on_hit:
+                    # 命中即停：官方同款策略，避免为一把密钥把几百把全试一遍
+                    break
             except NfcError:
                 errors += 1
             if progress:
