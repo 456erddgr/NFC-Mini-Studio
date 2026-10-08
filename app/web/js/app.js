@@ -2273,6 +2273,7 @@ function bindUI() {
   if ($('#keyboxClear')) $('#keyboxClear').onclick = doKeyboxClear;
   if ($('#keyboxVerify')) $('#keyboxVerify').onclick = doKeyboxVerify;
   if ($('#btnFormatCard')) $('#btnFormatCard').onclick = doFormatCard;
+  if ($('#btnSniffRun')) $('#btnSniffRun').onclick = doSniffRun;
 
   /* 设置 */
   if ($('#btnPickWall')) {
@@ -2466,6 +2467,22 @@ async function doKeyboxAdd() {
   } catch (e) { toast('添加失败：' + e.message, 'err'); }
 }
 
+async function doSniffRun() {
+  if (!state.connected) { toast('请先连接读卡器', 'err'); return; }
+  const ok = await confirmBox('侦测读卡（0x34/0x35/0x36）',
+    '流程：读取初始侦测数据 → 上报模拟卡参数 → 开始侦测数据流。\n' +
+    '按提示放卡/移卡，并把设备贴近门禁或电梯刷卡器约 10 秒。\n\n确定开始吗？');
+  if (!ok) return;
+  try {
+    busy(true, '侦测读卡…');
+    setLed('busy');
+    const uidText = ($('#fUid') || {}).textContent || '';
+    const res = await api('sniff_run', (uidText && uidText !== '—') ? uidText : '', 0x08);
+    toast(res.ok ? '侦测读卡完成' : '侦测读卡有异常，详见日志', res.ok ? 'ok' : 'warn');
+    log('侦测读卡：' + (res.raw || '（无数据）'), res.ok ? 'ok' : 'warn');
+  } catch (e) { toast('侦测读卡失败：' + e.message, 'err'); }
+  finally { busy(false); setLed(state.connected ? 'on' : ''); }
+}
 async function doFormatCard() {
   if (!state.connected) { toast('请先连接读卡器', 'err'); return; }
   const ok = await confirmBox('格式化卡片（不可逆）',

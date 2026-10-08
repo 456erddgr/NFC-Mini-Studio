@@ -1008,6 +1008,21 @@ class Api:
                                 f"格式化完成：成功 {written}/{total} 块，失败 {len(failed)}")
             return {"written": written, "failed": failed, "total": total, "key": key.upper()}
         return self._guard(work)
+    def sniff_run(self, uid: str = "", sak: int = 0x08) -> dict:
+        """侦测读卡（0x34 → 0x35 → 0x36），对齐小程序「侦测读卡」页。
+
+        需要读卡器支持侦测（官方清单 sniff=true，NFC Max 2.0 支持）。
+        """
+        def work():
+            if not self.device.connected:
+                raise NfcError("请先连接读卡器")
+            u = (uid or "").strip() or (self._last_card or {}).get("uid", "")
+            self._on_device_log("info", f"侦测读卡开始（UID {u or '设备自取'}）")
+            res = self.device.sniff_run(u, int(sak))
+            self._on_device_log("ok" if res.get("ok") else "warn",
+                                f"侦测读卡结束：{res.get('raw', '')}")
+            return res
+        return self._guard(work)
     # ------------------------------------------------------------ 密码库（公共 / 用户 / 读卡历史）
     def keybox_list(self, lib: str = "public") -> dict:
         return self._ok({"lib": lib, "items": self.keybox.list(lib),

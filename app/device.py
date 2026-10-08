@@ -895,6 +895,47 @@ class NfcDevice:
                 "summary": summary or "所有破解方式均未成功"}
 
     # ------------------------------------------------------------ 其它命令
+    # ------------------------------------------------------------ 侦测读卡（0x34/0x35/0x36）
+    # 对齐小程序 data-sniffing 页：0x34 读初始侦测数据 → 0x35 上报模拟卡参数(UID/SAK/ATQA)
+    # → 0x36 开始侦测数据流；仅 sniff:true 的机型支持（NFC Max 2.0 支持）。
+    def sniff_init(self) -> dict:
+        """0x34 读取初始侦测数据（第一步：放原卡读取）。"""
+        d = self.request(bytes([0x34]), timeout=8.0)
+        return {"raw": fmt_hex(d), "status": _status_code(d),
+                "status_text": _status_text(d), "data": list(d)}
+
+    def sniff_set_card(self, uid, sak: int = 0x08, atqa=b"\x04\x00") -> dict:
+        """0x35 上报模拟卡参数：DATA = 35 + UID(最多7B) + SAK(1B) + ATQA(2B)。"""
+        if isinstance(uid, str):
+            uid = bytes.fromhex(uid.replace(" ", ""))
+        uid = bytes(uid or b"")[:7]
+        atqa = bytes(atqa)[:2].ljust(2, b"\x00")
+        payload = bytes([0x35]) + uid + bytes([int(sak) & 0xFF]) + atqa
+        d = self.request(payload, timeout=8.0)
+        return {"raw": fmt_hex(d), "status": _status_code(d), "status_text": _status_text(d),
+                "payload": fmt_hex(payload)}
+
+    def sniff_start(self) -> dict:
+        """0x36 开始侦测数据流（把设备贴近门禁/电梯刷卡器采集）。"""
+        d = self.request(bytes([0x36]), timeout=20.0)
+        return {"raw": fmt_hex(d), "status": _status_code(d),
+                "status_text": _status_text(d), "data": list(d)}
+
+    def sniff_run(self, uid=None, sak: int = 0x08, progress=None) -> dict:
+        """完整侦测流程：0x34 初始化 → 0x35 设卡 → 0x36 采集。"""
+        steps = []
+        if progress:
+            progress(1, 3, "读取初始侦测数据（0x34）…")
+        init = self.sniff_init(); steps.append({"step": "init", **init})
+        if progress:
+            progress(2, 3, "上报模拟卡参数（0x35）…")
+        setc = self.sniff_set_card(uid, sak); steps.append({"step": "set", **setc})
+        if progress:
+            progress(3, 3, "开始侦测数据流（0x36）…")
+        run = self.sniff_start(); steps.append({"step": "run", **run})
+        return {"ok": run.get("status") == 0, "steps": steps,
+                "raw": run.get("raw", ""), "uid": (uid or "")}
+
     def detect_bug_card(self) -> dict:
         d = self.request(bytes([CMD.IS_BUG]), timeout=10.0)
         return {"raw": fmt_hex(d), "is_bug": _status_code(d) == 1,
