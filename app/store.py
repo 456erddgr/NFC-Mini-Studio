@@ -52,6 +52,13 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "cloud_token": DEFAULT_CLOUD_TOKEN,         # PUT 进 NICETHEME 请求头；需填自己的登录态 token（默认空）
     "cloud_timeout": 8,         # 云端解算超时（秒），超时自动降级本地
     "crack_nonces": "",         # 手动粘贴的 mfkey32 采集数据（uid+两轮 nt/nr_enc/ar_enc）
+    # ---- v2.3.0 新增：功能设置（对齐小程序 function-setting 页的 6 个开关）----
+    "hid_enable": False,            # 启用/显示 HID 卡读取
+    "non_full_key_read": False,     # 非完整密钥读卡（采集 + 密钥缓存批量验证）
+    "encrypted_zero_sectors": True, # 自动加密 0 扇区（写卡时同时写密钥块）
+    "write_card_tips": True,        # 写卡前提示滚动码风险
+    "power_display": False,         # 设备页显示读卡器电量
+    "sak88": False,                 # SAK88 开关（0x88 类卡特殊处理）
 }
 
 # 观感参数版本：调过一次默认值就 +1，用于老配置的一次性迁移

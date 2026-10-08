@@ -2275,6 +2275,12 @@ function bindUI() {
           crack_timeout: +$('#setCrackTimeout').value || 25,
           auto_crack: !!$('#setAutoCrack').checked,
           auto_find: !!$('#setAutoFind').checked,
+          hid_enable: !!($('#setHidEnable') || {}).checked,
+          non_full_key_read: !!($('#setNonFullKey') || {}).checked,
+          encrypted_zero_sectors: !!($('#setEncZero') || {}).checked,
+          write_card_tips: !!($('#setWriteTips') || {}).checked,
+          power_display: !!($('#setPowerDisplay') || {}).checked,
+          sak88: !!($('#setSak88') || {}).checked,
           device_spin: state.spin.speed,
           crack_mode: state.crack_mode === 'local' ? 'local' : 'cloud',
           cloud_endpoint: $('#setCloudEndpoint') ? $('#setCloudEndpoint').value.trim() : '',
@@ -2463,6 +2469,14 @@ async function loadBackend() {
     renderCrackMode(state.settings.crack_mode === 'local' ? 'local' : 'cloud');
     if ($('#setCloudEndpoint')) $('#setCloudEndpoint').value = state.settings.cloud_endpoint || '';
     if ($('#setCloudTimeout')) $('#setCloudTimeout').value = state.settings.cloud_timeout || 8;
+    const S = state.settings || {};
+    const setChk = (id, v) => { const el = $(id); if (el) el.checked = !!v; };
+    setChk('#setHidEnable', S.hid_enable);
+    setChk('#setNonFullKey', S.non_full_key_read);
+    setChk('#setEncZero', S.encrypted_zero_sectors);
+    setChk('#setWriteTips', S.write_card_tips);
+    setChk('#setPowerDisplay', S.power_display);
+    setChk('#setSak88', S.sak88);
     if ($('#baudSel') && state.settings.baud) $('#baudSel').value = String(state.settings.baud);
     state.spin.speed = state.settings.device_spin == null ? 18 : state.settings.device_spin;
     state.spin.on = state.spin.speed > 0;
