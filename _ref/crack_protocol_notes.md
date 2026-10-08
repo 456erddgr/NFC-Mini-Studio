@@ -275,3 +275,32 @@ e[1] = 状态码；e[2] = 包号
 `U` 不是 pang，而是 **full_decode(0x22)**；pang 的请求函数是 decode 分支里的 `Le`，
 mfoc 是 `Pe`，fm11rf08s 是 `He`。这三个具体帧格式仍未定位到完整定义。
 **普通 M1 卡走 keygen，不需要它们。**
+
+## 十七、Le/Pe/He 真相：采集复用已有命令码（重大简化）
+
+逆向 `Le`(@916788) / `Pe`(@918691) / `He`(@904698) 得出——**它们没有新的采集命令码**，
+都是复用已有命令，区别只在**送到哪个云端接口**：
+
+| 算法 | 采集函数 | 采集命令 | 云端接口 | 重试 |
+|---|---|---|---|---|
+| pang | `U(dev, block, keyType, cb)` | **0x22** full_decode（3 包） | `/recovery/pang` | 最多 **5** 次 |
+| mfoc | `V(dev, verified.block, block, keyType, verified.type, cb)` | **0x30** half_decode | `/recovery/mfoc` | 最多 **10** 次 |
+| fm11rf08s | `He()` | 0x37 系列 | `/recovery/fm11rf08s*` | — |
+
+### 0x22 full_decode 采集（= pang 的采集）
+```
+请求 DATA = [0x22, block, keyType]
+响应 3 包：package_number 0→1→2，进度 (i+1)/3，i===2 结束
+  包 0/1 → uid/nt/nr_1/ks_list_0..1（见第十四节）
+  包 2   → nr_3 + ks_list_30..37（见第十六节）
+```
+
+### 0x30 half_decode 采集（= mfoc 的采集）
+```
+请求 DATA = [0x30, t, n, keyTypeA, keyTypeB]（5 字节，见 @870050 的 V 函数）
+响应多包，包号 8 结束；数据映射到 d_Nt_* / d_NtLast_* / r_Nt_* / r_Rx_* / r_RxPar_* / uid
+（见第十六节的 F 解析函数）
+```
+
+**结论**：桌面端只要把 0x22 / 0x30 的多包采集实现出来，把采集结果按上面的字段映射组装，
+POST 到 `/recovery/pang` / `/recovery/mfoc`，就能复刻这两个算法——**不需要新的设备命令**。
