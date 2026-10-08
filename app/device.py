@@ -1028,7 +1028,61 @@ class NfcDevice:
         self._log("info" if out["ok"] else "warn",
                   f"hardnested 采集：{n} 包 / {len(lines)} 行" + (f"（{state['err']}）" if state["err"] else ""))
         return out
-    # ------------------------------------------------------------ 侦测读卡（0x34/0x35/0x36）
+    def collect_full_decode(self, block: int = 0, key_type: int = 0,
+                            timeout: float = 30.0, progress=None) -> dict:
+        """0x22 full_decode 采集（pang 全加密卡用，3 包）。
+
+        请求 [0x22, block, keyType]；设备回 3 包，package_number 0→1→2。
+        包 0/1 取 uid/nt/nr_1/ks_list，包 2 取 nr_3/ks_list_30..37。
+        """
+        payload = bytes([CMD.FULL_DECODE, int(block) & 0xFF, int(key_type) & 1])
+        packets: List[bytes] = []
+        state = {"ok": True, "err": ""}
+
+        def on_packet(d: bytes) -> bool:
+            if len(d) < 3:
+                return False
+            code = int(d[1])
+            pkg = int(d[2])
+            if code != 0:
+                state["ok"] = False
+                state["err"] = err_text(code)
+                return True
+            packets.append(bytes(d))
+            if progress:
+                try:
+                    progress(pkg, 3, f"full_decode 采集包 {pkg}")
+                except Exception:
+                    pass
+            return pkg >= 2 or len(packets) >= 3
+
+        try:
+            n = self.request_multi(payload, on_packet, timeout=timeout)
+        except NfcError as exc:
+            n = 0
+            state["ok"] = False
+            state["err"] = str(exc)
+        # 按官方字段映射组装
+        out = {"ok": bool(state["ok"] and packets), "packets": n, "error": state["err"],
+               "uid": (self._last_card or {}).get("uid", ""), "cmd": "0x22",
+               "payload": fmt_hex(payload), "raw": [fmt_hex(x) for x in packets]}
+        if packets:
+            def u32(pkt, off):
+                return int.from_bytes(bytes(pkt[off:off + 4]), "big") if len(pkt) >= off + 4 else 0
+            p0 = packets[0]
+            out.update({"uid_i": u32(p0, 3), "nt": u32(p0, 7), "nr_1": u32(p0, 11),
+                        "ks_list_0": (int(p0[15]) if len(p0) > 15 else 0),
+                        "ks_list_1": (int(p0[16]) if len(p0) > 16 else 0)})
+            p2 = packets[-1]
+            out.update({"nr_3": u32(p2, 3),
+                        "ks_list_30": (int(p2[7]) if len(p2) > 7 else 0),
+                        "ks_list_37": (int(p2[14]) if len(p2) > 14 else 0)})
+        self.last_nonces = out
+        self._log("info" if out["ok"] else "warn",
+                  f"full_decode 采集：{n} 包" + (f"（{state['err']}）" if state["err"] else ""))
+        return out
+
+    # ------------------------------------------------------------ 侦测读卡（0x34/0x35/0x36）    # ------------------------------------------------------------ 侦测读卡（0x34/0x35/0x36）
     # 对齐小程序 data-sniffing 页：0x34 读初始侦测数据 → 0x35 上报模拟卡参数(UID/SAK/ATQA)
     # → 0x36 开始侦测数据流；仅 sniff:true 的机型支持（NFC Max 2.0 支持）。
     def sniff_init(self) -> dict:

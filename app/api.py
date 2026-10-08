@@ -1222,10 +1222,47 @@ class Api:
                         continue
                 raise NfcError("手工指定的密钥未通过认证")
 
-            # 未实现的特殊卡型算法
-            if algo in ("pang", "mfoc", "fm11rf08s"):
-                raise NfcError(f"{algo} 仅针对特殊卡型（全加密卡 / 三代卡），"
-                               f"普通 M1 卡请使用自动模式（network）")
+            # ---- pang（全加密卡）：0x22 采集 → 云端 /recovery/pang（官方最多重试 5 次）----
+            if algo == "pang":
+                from .crack_engine import _vendor_request, vendor_urls, cloud_config, parse_vendor_response
+                conf = cloud_config(self.settings.data)
+                urls = vendor_urls(conf["endpoint"])
+                last = ""
+                for attempt in range(1, 6):
+                    col = self.device.collect_full_decode(block=block, key_type=0)
+                    if not col.get("ok"):
+                        last = col.get("error") or "采集失败"
+                        continue
+                    body = {"uid": col.get("uid_i") or 0, "nt": col.get("nt") or 0,
+                            "ks_list_1": [col.get("ks_list_0", 0), col.get("ks_list_1", 0)],
+                            "nr1": col.get("nr_1") or 0,
+                            "ks_list_2": [0, 0], "nr2": 0,
+                            "ks_list_3": [col.get("ks_list_30", 0), col.get("ks_list_37", 0)],
+                            "nr3": col.get("nr_3") or 0}
+                    payload = _vendor_request(urls["base"] + "/recovery/pang",
+                                              {"Content-Type": "application/json",
+                                               "Accept": "application/json",
+                                               AUTH_HEADER: conf["token"], "User-Agent": VENDOR_UA},
+                                              body, max(20.0, conf["timeout"]))
+                    res = parse_vendor_response(payload)
+                    keys = res.get("keys") or []
+                    if keys:
+                        for k in keys:
+                            try:
+                                kb = hex_to_bytes(k)[:6].ljust(6, b"\x00")
+                                self.device.auth(block, kb, 0)
+                                self._cracked_keys[int(sector)] = k.upper()
+                                return {"ok": True, "key": k.upper(), "key_type": 0, "uid": uid,
+                                        "source": "pang", "algorithm": "pang", "attempts": attempt}
+                            except NfcError:
+                                continue
+                    last = res.get("detail") or "云端未返回可用密钥"
+                raise NfcError(f"pang 全加密采集/解密未成功（重试 5 次）：{last}")
+
+            # 未实现（暂缺采集细节）
+            if algo in ("mfoc", "fm11rf08s"):
+                raise NfcError(f"{algo} 的采集映射尚未完全接好（已知：mfoc 用 0x30、"
+                               f"fm11rf08s 用 0x37）；普通 M1 卡请用自动模式")
 
             # ---- 官方 history 算法：先查本地读卡历史库，命中直接复用（免云端） ----
             try:
