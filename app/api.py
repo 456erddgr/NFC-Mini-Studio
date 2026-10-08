@@ -27,6 +27,7 @@ from .protocol import (DEFAULT_KEY, ERR, PHONE_WRITE_MODES, NfcError, WRITE_FORM
                        hex_to_bytes, phone_nfc_plan, resolve_write_mode,
                        write_mode_table)
 from .store import CardBox, Settings
+from .keybox import KeyBox
 from .transport import WIRED_CANDIDATES
 
 IMG_SUFFIX = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
@@ -62,6 +63,7 @@ class Api:
         self._window = None                      # 由 main.py 注入
         self.settings = Settings()
         self.cardbox = CardBox()
+        self.keybox = KeyBox()
         self.device = NfcDevice(on_log=self._on_device_log)
         for _group in (self.settings, self.cardbox, self.device):
             try:
@@ -976,6 +978,21 @@ class Api:
                     "skipped": skipped, "formats": formats, "elapsed": elapsed}
         return self._guard(work)
 
+    # ------------------------------------------------------------ 密码库（公共 / 用户 / 读卡历史）
+    def keybox_list(self, lib: str = "public") -> dict:
+        return self._ok({"lib": lib, "items": self.keybox.list(lib),
+                         "stats": self.keybox.stats()})
+
+    def keybox_add(self, keys: Any, lib: str = "user") -> dict:
+        return self._guard(lambda: dict(self.keybox.add(keys, lib),
+                                        stats=self.keybox.stats()))
+
+    def keybox_remove(self, key_id: str = "", key: str = "", lib: str = "user") -> dict:
+        return self._ok({"removed": self.keybox.remove(key_id, key, lib),
+                         "stats": self.keybox.stats()})
+
+    def keybox_clear(self, lib: str = "history") -> dict:
+        return self._ok(dict(self.keybox.clear(lib), stats=self.keybox.stats()))
     # ------------------------------------------------------------ 设置 / 外观
     def get_settings(self) -> dict:
         return self._ok(self.settings.data)

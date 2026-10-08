@@ -1069,3 +1069,11 @@ body.light .toast { background: rgba(255, 255, 255, .86); color: #14161c; }
     transition-duration: .06s !important;
   }
 }
+
+/* ---------------------------------------------------------- 密码库 */
+.keybox-list { display: flex; flex-direction: column; gap: 6px; max-height: 340px; overflow: auto; }
+.kb-row { display: flex; align-items: center; gap: 10px; padding: 7px 12px; border-radius: 9px;
+  background: rgba(255,255,255,.045); border: 1px solid rgba(255,255,255,.06); }
+.kb-idx { min-width: 104px; color: var(--muted, #93a1b5); font-size: 12px; }
+.kb-key { flex: 1; letter-spacing: .6px; font-size: 13px; }
+.keybox-list .empty { color: var(--muted, #93a1b5); text-align: center; padding: 20px; font-size: 13px; }

@@ -2221,6 +2221,12 @@ function bindUI() {
   if ($('#modeLocal')) $('#modeLocal').onclick = () => setCrackMode('local', true);
   if ($('#btnVerifyLocal')) $('#btnVerifyLocal').onclick = doVerifyLocal;
   if ($('#btnWxToken')) $('#btnWxToken').onclick = doWxToken;
+  /* 密码库 */
+  if ($('#kbTabPublic')) $('#kbTabPublic').onclick = () => setKeyboxTab('public');
+  if ($('#kbTabUser')) $('#kbTabUser').onclick = () => setKeyboxTab('user');
+  if ($('#kbTabHistory')) $('#kbTabHistory').onclick = () => setKeyboxTab('history');
+  if ($('#keyboxAdd')) $('#keyboxAdd').onclick = doKeyboxAdd;
+  if ($('#keyboxClear')) $('#keyboxClear').onclick = doKeyboxClear;
 
   /* 设置 */
   if ($('#btnPickWall')) {
@@ -2366,6 +2372,67 @@ async function refreshCrackEngine() {
     local.available ? 'ok' : 'warn');
 }
 
+/* ---------------------------------------------------------- 密码库（公共/用户/历史） */
+let keyboxLib = 'public';
+
+async function loadKeybox(lib) {
+  if (lib) keyboxLib = lib;
+  try {
+    const r = await api('keybox_list', keyboxLib);
+    renderKeybox(r);
+  } catch (e) { log('密码库读取失败：' + e.message, 'err'); }
+}
+
+function renderKeybox(r) {
+  const list = $('#keyboxList');
+  if (!list) return;
+  const items = (r && r.items) || [];
+  const stats = (r && r.stats) || {};
+  setText('#keyboxBadge', `公共 ${stats.public || 0} · 用户 ${stats.user || 0} · 历史 ${stats.history || 0}`);
+  const isHistory = keyboxLib === 'history';
+  if (!items.length) { list.innerHTML = '<div class="empty">暂无数据</div>'; return; }
+  list.innerHTML = items.map((it, i) => {
+    const key = isHistory ? ((it.keys || []).join(' ') || '—') : (it.key || '—');
+    const left = isHistory ? (it.uid || '—') : String(i);
+    const canDel = (keyboxLib === 'user') || (keyboxLib === 'public' && !it.builtin);
+    const del = canDel ? `<button class="btn ghost sm" data-kdel="${escapeHtml(it.id)}">删除</button>` : '';
+    return `<div class="kb-row"><span class="kb-idx">${escapeHtml(left)}</span>`
+      + `<span class="kb-key mono">${escapeHtml(key)}</span>${del}</div>`;
+  }).join('');
+  list.querySelectorAll('[data-kdel]').forEach(b => {
+    b.onclick = async () => {
+      try { await api('keybox_remove', b.dataset.kdel, '', keyboxLib); await loadKeybox(); }
+      catch (e) { toast('删除失败：' + e.message, 'err'); }
+    };
+  });
+}
+
+async function doKeyboxAdd() {
+  const inp = $('#keyboxInput');
+  const text = inp ? inp.value.trim() : '';
+  if (!text) { toast('请输入密钥', 'err'); return; }
+  try {
+    const r = await api('keybox_add', text, 'user');
+    if (inp) inp.value = '';
+    toast(`已添加 ${r.added} 条（跳过 ${r.skipped}）`, 'ok');
+    setKeyboxTab('user');
+  } catch (e) { toast('添加失败：' + e.message, 'err'); }
+}
+
+async function doKeyboxClear() {
+  const name = keyboxLib === 'public' ? '公共资源库' : (keyboxLib === 'user' ? '用户密钥库' : '读卡历史库');
+  const ok = await confirmBox('清空密码库', `确定清空「${name}」吗？`);
+  if (!ok) return;
+  try { await api('keybox_clear', keyboxLib); await loadKeybox(); toast('已清空', 'ok'); }
+  catch (e) { toast('清空失败：' + e.message, 'err'); }
+}
+
+function setKeyboxTab(lib) {
+  keyboxLib = lib;
+  const map = { public: '#kbTabPublic', user: '#kbTabUser', history: '#kbTabHistory' };
+  Object.keys(map).forEach(k => { const el = $(map[k]); if (el) el.classList.toggle('is-active', k === lib); });
+  loadKeybox(lib);
+}
 async function doWxToken() {
   const out = $('#wxTokenOut');
   const btn = $('#btnWxToken');
@@ -2467,6 +2534,7 @@ async function loadBackend() {
     /* 破解页扫描开关与全局「寻卡后自动破解」保持同步 */
     if ($('#scanAutoCrack')) $('#scanAutoCrack').checked = state.settings.auto_crack !== false;
     renderCrackMode(state.settings.crack_mode === 'local' ? 'local' : 'cloud');
+    loadKeybox('public');
     if ($('#setCloudEndpoint')) $('#setCloudEndpoint').value = state.settings.cloud_endpoint || '';
     if ($('#setCloudTimeout')) $('#setCloudTimeout').value = state.settings.cloud_timeout || 8;
     const S = state.settings || {};

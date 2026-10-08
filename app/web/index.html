@@ -654,6 +654,25 @@
           </div>
           <p class="hint" id="crackVerifyOut">点「验证本地算法」跑一遍官方 mfkey32 测试向量，确认本机离线算法可用。</p>
         </div>
+
+        <div class="card glass mt">
+          <div class="card-head">
+            <h2>密码库</h2>
+            <span class="badge" id="keyboxBadge">读取中…</span>
+          </div>
+          <div class="seg" id="keyboxTabs">
+            <button class="seg-item is-active" id="kbTabPublic">公共资源库</button>
+            <button class="seg-item" id="kbTabUser">用户密钥库</button>
+            <button class="seg-item" id="kbTabHistory">读卡历史库</button>
+          </div>
+          <div class="row wrap mt">
+            <input class="input mono grow" id="keyboxInput" placeholder="12 位 Hex 密钥，多个用逗号/空格分隔">
+            <button class="btn primary" id="keyboxAdd">添加到用户库</button>
+            <button class="btn ghost" id="keyboxClear">清空当前库</button>
+          </div>
+          <div class="keybox-list mt" id="keyboxList"></div>
+          <p class="hint">公共资源库＝厂商常用密钥表；用户密钥库＝自己新增/导入；读卡历史库＝每次读卡破解命中的 UID 与密钥。</p>
+        </div>
       </section>
 
     </div>
