@@ -586,7 +586,10 @@ class NfcDevice:
         key = _as_key(key)
         if not 0 <= int(block) <= 255:
             raise NfcError("块号范围 0..255")
-        payload = bytes([CMD.AUTH, int(block) & 0xFF, int(key_type) & 0x01]) + key
+        # 实测 0x0A 是空命令（恒返回 0A 00 00，不校验密钥）；真正的密钥校验是
+        # 0x06(KEY A) / 0x09(KEY B)，请求 [cmd, block, key0..5]，状态在 DATA[2]。
+        cmd = CMD.KEY_A_CHECK if (int(key_type) & 1) == 0 else CMD.KEY_B_CHECK
+        payload = bytes([cmd, int(block) & 0xFF]) + key
         d = self.request(payload, timeout=timeout)
         code = _status_code(d)
         if code != 0:
