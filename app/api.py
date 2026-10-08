@@ -1227,6 +1227,26 @@ class Api:
                 raise NfcError(f"{algo} 仅针对特殊卡型（全加密卡 / 三代卡），"
                                f"普通 M1 卡请使用自动模式（network）")
 
+            # ---- 官方 history 算法：先查本地读卡历史库，命中直接复用（免云端） ----
+            try:
+                for row in self.keybox.list("history"):
+                    if str(row.get("uid") or "").upper() != str(uid).upper():
+                        continue
+                    for k in (row.get("keys") or []):
+                        kb = hex_to_bytes(k)[:6].ljust(6, b"\x00")
+                        for kt in (0, 1):
+                            try:
+                                self.device.auth(block, kb, kt)
+                                self._cracked_keys[int(sector)] = k.upper()
+                                self._on_device_log("ok", f"历史库命中：扇区 {sector} 密钥 {k.upper()}"
+                                                          f"（无需云端）")
+                                return {"ok": True, "key": k.upper(), "key_type": kt, "uid": uid,
+                                        "source": "history", "algorithm": algo}
+                            except NfcError:
+                                continue
+            except Exception:                              # noqa: BLE001
+                pass
+
             # 自动 / network / history：云端 keygen 全表 → 设备批量验证（命中即停）
             self._on_device_log("info", f"云端解密：查询 keygen（UID {uid}）…")
             kg = cloud_keygen_lookup(uid, timeout=25.0)
