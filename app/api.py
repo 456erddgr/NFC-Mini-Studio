@@ -1110,8 +1110,23 @@ class Api:
                     cand = kg.get("keys") or []
                     steps.append({"step": "keygen", "count": len(cand)})
                     self._on_device_log("info", f"自动链：云端返回 {len(cand)} 把候选密钥，开始批量验证")
+                    # 官方同款：候选密钥分批下发验证（每批 64 把），推实时进度
+                    batch = 64
+                    total_c = max(1, len(cand))
                     for kt in (0, 1):
-                        res = self.device.batch_verify(cand, block=block, key_type=kt)
+                        hit = None
+                        for bi in range(0, len(cand), batch):
+                            chunk = cand[bi:bi + batch]
+                            self._progress_push("crack", min(bi + len(chunk), total_c), total_c,
+                                                f"云端候选密钥验证 {min(bi + len(chunk), total_c)}/{total_c}"
+                                                f"（KEY {'A' if kt == 0 else 'B'}）")
+                            res = self.device.batch_verify(chunk, block=block, key_type=kt)
+                            if res.get("hits"):
+                                hit = res["hits"][0]
+                                break
+                        if hit:
+                            res = {"hits": [hit], "tried": bi + len(chunk)}
+                            break
                         if res.get("hits"):
                             hit = res["hits"][0]
                             steps.append({"step": "verify", "key": hit["key"],
