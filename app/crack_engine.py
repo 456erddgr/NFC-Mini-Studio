@@ -860,11 +860,21 @@ def cloud_keygen_lookup(uid: Any, base: str = VENDOR_KEYGEN_BASE, token: str = "
         if isinstance(payload, dict):
             status = str(payload.get("status") or "").lower()
         if status in ("completed", "success", "done", "finished"):
-            keys = _keys_from_anything(payload)
+            # 官方 keygen 的 payload.result 是"该卡候选密钥全表"（实测单卡可达 500+ 把），
+            # 必须整表返回交给设备批量验证，不能只取第一把。
+            raw_keys = payload.get("result") if isinstance(payload, dict) else None
+            keys: List[str] = []
+            if isinstance(raw_keys, list):
+                for item in raw_keys:
+                    k = norm_key(item)
+                    if k:
+                        keys.append(k)
+            if not keys:
+                keys = _keys_from_anything(payload)
             if keys:
                 return {"ok": True, "keys": keys, "key": keys[0], "uid": f"{uid_int:08X}",
                         "url": f"{root}/query?id={job_id}",
-                        "detail": f"官方云端密钥库命中 {len(keys)} 把密钥"}
+                        "detail": f"官方云端密钥库命中 {len(keys)} 把候选密钥"}
             raise CloudPending("官方云端密钥库已完成但未返回密钥")
         if status in ("failed", "fail", "error"):
             raise CloudPending(f"官方云端密钥库未收录该卡：{payload.get('result') or payload}")
