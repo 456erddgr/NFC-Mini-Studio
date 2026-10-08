@@ -90,3 +90,24 @@ pang 采集失败 → "国产全加密卡，是否尝试联网计算密码？"
 
 **下一步**：实现 hardnested（`/hardnested` 提交 + `/get-hardnested-key` 轮询），
 它才是密钥全未知卡的正确算法。
+
+## 七、hardnested 真实帧格式（修正）
+
+逆向自小程序 `q()`，纠正了早前的错误猜测：
+
+```
+请求 DATA = [0x20, t, keyTypeN, a, keyTypeR]     // 5 字节，第 2/4 字节是 keyType 枚举(0=KEYA,1=KEYB)
+timeout = 600000 ms（10 分钟）
+响应：e[1] = 进度包号 0..255（不是状态！）
+      e[2] = 状态码（0 成功）—— 与 STATUS_INDEX[0x20]=2 一致
+      e[3:7] (4B) + e[7] (1B)
+每包拼成一行：  <e[3:7] hex> 000000 <e[7] hex>
+进度 == 255 时采集结束，拼好的文本行整批交云端 /hardnested
+```
+
+与 staticnest 的**根本差别**：staticnest 一次请求一包；hardnested **一条命令触发、设备连续回 256 包**，
+必须支持「同一 msgid 的连续多包接收」，而当前 `device.request()` 只等一包就返回。
+
+## 八、帧层确认
+小程序 `p()`（标准帧）：`FF | LEN | MSGID | DATA | SUM | FE`，SUM = DATA 累加（setUint8 截断）。
+小程序 `b()`（长帧）：`FD | LEN_H | LEN_L | MSGID | DATA | SUM | FE`（>255 字节数据用）。

@@ -927,6 +927,44 @@ class NfcDevice:
         self._log("info", f"staticnest 采集：done={done} enc1={out['enc1_bytes_0']:#010x} ks1={out['ks1_bytes_0']:#010x}")
         return out
 
+    def collect_hardnested(self, block: int = 0, rounds: int = 12, key_type: int = 0,
+                           progress=None, should_stop=None) -> dict:
+        """0x20 hardnested 采集（兼容卡 / 密钥全未知卡的正解）。
+
+        请求 DATA = [0x20, t, n, keyTypeA, keyTypeB]（5 字节，与 staticnest 同构）。
+        每轮返回一段随机密文，采多轮后一并交云端 /hardnested 求解。
+        """
+        frames, oks, errs = [], 0, 0
+        total = max(1, int(rounds))
+        for i in range(total):
+            if should_stop and should_stop():
+                break
+            payload = bytes([CMD.HARDNESTED, int(block) & 0xFF, i & 0xFF,
+                             int(key_type) & 1, 1 - (int(key_type) & 1)])
+            try:
+                d = self.request(payload, timeout=8.0)
+                code = _status_code(d)
+                if code == 0:
+                    frames.append({"raw": fmt_hex(d), "data": list(d),
+                                   "payload": fmt_hex(payload)})
+                    oks += 1
+                else:
+                    errs += 1
+            except Exception:
+                errs += 1
+            if progress:
+                try:
+                    progress(i + 1, total, f"hardnested 采集 {i + 1}/{total}")
+                except Exception:
+                    pass
+        out = {"ok": oks > 0, "frames": frames, "ok_count": oks, "err_count": errs,
+               "rounds": total, "block": int(block) & 0xFF,
+               "uid": (self._last_card or {}).get("uid", ""), "cmd": "0x20"}
+        self.last_nonces = out
+        self._log("info" if oks else "warn",
+                  f"hardnested 采集：成功 {oks}/{total} 轮")
+        return out
+
     # ------------------------------------------------------------ 侦测读卡（0x34/0x35/0x36）
     # 对齐小程序 data-sniffing 页：0x34 读初始侦测数据 → 0x35 上报模拟卡参数(UID/SAK/ATQA)
     # → 0x36 开始侦测数据流；仅 sniff:true 的机型支持（NFC Max 2.0 支持）。
