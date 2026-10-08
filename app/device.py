@@ -217,6 +217,7 @@ class NfcDevice:
         # 命中过的写块帧格式（同一张卡后续写块直接用，不再逐个试）
         self._write_format: Optional[str] = None
         self._write_format_log: List[str] = []
+        self.last_nonces: dict = {}          # 最近一次破解采集结果（供云端解算链路取用）
         # P0：最近一次寻卡结果（写卡 / 写手机手环 NFC 需要复用 UID 与卡类型）
         self._last_card: Optional[dict] = None
 
@@ -895,6 +896,37 @@ class NfcDevice:
                 "summary": summary or "所有破解方式均未成功"}
 
     # ------------------------------------------------------------ 其它命令
+    # ------------------------------------------------------------ 破解采集（喂云端算法）
+    # 官方流程：设备采集原始密文 → 上传云端算。这里按小程序 X() 的帧格式还原采集。
+    def collect_staticnest(self, block: int = 0, n: int = 0,
+                           key_type_a: int = 0, key_type_b: int = 0) -> dict:
+        """0x32 staticnest 采集（无漏洞卡）。
+
+        请求 DATA = [0x32, t, n, keyTypeA, keyTypeB]（5 字节，逆向自小程序 X()）。
+        响应 e[2]===9 表示采集完成，随后 e[3:7]/e[7:11] 是 enc1/ks1（第二组在 e[11:15]/e[15:19]）。
+        """
+        payload = bytes([CMD.STATICNEST, int(block) & 0xFF, int(n) & 0xFF,
+                         int(key_type_a) & 1, int(key_type_b) & 1])
+        d = self.request(payload, timeout=20.0)
+        code = _status_code(d)
+        if code != 0:
+            raise NfcError(f"staticnest 采集失败：{err_text(code)}", code)
+        done = len(d) > 2 and int(d[2]) == 9
+        def u32(offset):
+            if len(d) < offset + 4:
+                return 0
+            return int.from_bytes(bytes(d[offset:offset + 4]), "big")
+        out = {
+            "ok": done, "raw": fmt_hex(d), "done_flag": (int(d[2]) if len(d) > 2 else -1),
+            "uid": (self._last_card or {}).get("uid", ""),
+            "enc1_bytes_0": u32(3), "ks1_bytes_0": u32(7),
+            "enc1_bytes_1": u32(11), "ks1_bytes_1": u32(15),
+            "cmd": "0x32", "payload": fmt_hex(payload),
+        }
+        self.last_nonces = out          # 供 api._collect_nonces / 云端链路取用
+        self._log("info", f"staticnest 采集：done={done} enc1={out['enc1_bytes_0']:#010x} ks1={out['ks1_bytes_0']:#010x}")
+        return out
+
     # ------------------------------------------------------------ 侦测读卡（0x34/0x35/0x36）
     # 对齐小程序 data-sniffing 页：0x34 读初始侦测数据 → 0x35 上报模拟卡参数(UID/SAK/ATQA)
     # → 0x36 开始侦测数据流；仅 sniff:true 的机型支持（NFC Max 2.0 支持）。

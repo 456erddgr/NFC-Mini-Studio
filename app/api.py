@@ -1023,6 +1023,22 @@ class Api:
                                 f"侦测读卡结束：{res.get('raw', '')}")
             return res
         return self._guard(work)
+    def collect_nonces(self, method: str = "staticnest", block: int = 0) -> dict:
+        """破解采集：设备采集原始密文，供云端算法解算（对齐小程序流程）。
+
+        目前实现 staticnest（0x32）；hardnested / pang / fm11rf08s 待补齐。
+        """
+        def work():
+            if not self.device.connected:
+                raise NfcError("请先连接读卡器")
+            m = (method or "staticnest").strip().lower()
+            if m in ("staticnest", "staticnest2", "0x32"):
+                res = self.device.collect_staticnest(block=block)
+                self._on_device_log("ok" if res.get("ok") else "warn",
+                                    f"staticnest 采集：{res.get('raw', '')}")
+                return res
+            raise NfcError(f"暂不支持的采集方式：{method}（当前支持 staticnest）")
+        return self._guard(work)
     # ------------------------------------------------------------ 密码库（公共 / 用户 / 读卡历史）
     def keybox_list(self, lib: str = "public") -> dict:
         return self._ok({"lib": lib, "items": self.keybox.list(lib),
