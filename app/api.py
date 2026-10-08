@@ -268,6 +268,7 @@ class Api:
         """寻卡 + 识卡 + （可选）后台自动破解。"""
         def work():
             info = self.device.find_card()
+            self._apply_sak88(info)
             self._cracked_keys = {}
             self._crack_result = None
             self._crack_job = ""
@@ -292,6 +293,16 @@ class Api:
             return info
         return self._guard(work)
 
+    def _apply_sak88(self, info: dict) -> None:
+        """SAK88 开关（对齐小程序 sak88）：SAK=0x88 属 7 字节 UID/特殊卡，标记出来。"""
+        try:
+            if self.settings.data.get("sak88") and int(info.get("sak_raw") or 0) == 0x88:
+                info["sak88"] = True
+                info["class_note"] = (info.get("class_note", "") +
+                                      " · SAK88 开关已开：按 0x88 特殊卡处理").strip()
+        except Exception:
+            pass
+
     def _maybe_auto_crack(self, info: dict) -> str:
         """IC 类卡片在后台级联破解；ID 卡没有"密钥"概念，直接跳过。"""
         if not info.get("crackable"):
@@ -299,9 +310,17 @@ class Api:
             return ""
         if not self.device.connected:
             return ""
+        sector = int(self.settings.data.get("crack_sector", 0))
+        # 非完整KEY读卡（对齐小程序 NON_FULL_KEY_READ）：先用设备采集原始密文，
+        # 采集结果留在 device.last_nonces，供云端算法取用；采集失败再回落固件级联。
+        if self.settings.data.get("non_full_key_read"):
+            try:
+                self._on_device_log("info", "非完整KEY读卡已开启：先做设备采集（0x32）再走云端")
+                self.device.collect_staticnest(block=int(sector) * 4)
+            except Exception as exc:                   # noqa: BLE001
+                self._on_device_log("warn", f"设备采集失败（{exc}），回落固件级联")
         try:
-            self._crack_job = self._start_crack_job(
-                sector=int(self.settings.data.get("crack_sector", 0)))
+            self._crack_job = self._start_crack_job(sector=sector)
             return self._crack_job
         except Exception as exc:                       # noqa: BLE001
             self._on_device_log("err", f"启动后台破解失败：{exc}")
