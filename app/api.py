@@ -978,6 +978,36 @@ class Api:
                     "skipped": skipped, "formats": formats, "elapsed": elapsed}
         return self._guard(work)
 
+    def format_card(self, key_hex: str = "", key_type: int = 0,
+                    confirm: bool = False) -> dict:
+        """格式化卡片：用已知密钥把 16 个扇区的数据块逐块写 0，密钥块写成厂商默认值。
+
+        对齐小程序「格式化卡片」——它本质上就是逐块写（0x08），不是独立指令。
+        不可逆，必须显式 confirm=True。
+        """
+        if not confirm:
+            raise NfcError("格式化会清空卡片数据且不可恢复，请先勾选确认")
+        def work():
+            if not self.device.connected:
+                raise NfcError("请先连接读卡器")
+            key = (key_hex or "").strip() or self._best_key()[0]
+            kb = (hex_to_bytes(key)[:6]).ljust(6, b"\x00")
+            default_trailer = bytes.fromhex("FFFFFFFFFFFF" "FF078069" "FFFFFFFFFFFF")
+            written, failed = 0, []
+            total = 64
+            for block in range(total):
+                data = default_trailer if (block % 4 == 3) else bytes(16)
+                try:
+                    self.device.write_block(block, data, key=kb, key_type=key_type)
+                    written += 1
+                except NfcError as exc:
+                    failed.append({"block": block, "error": str(exc)})
+                self._progress_push("format", block + 1, total,
+                                    f"格式化块 {block}", block=block)
+            self._on_device_log("ok" if not failed else "warn",
+                                f"格式化完成：成功 {written}/{total} 块，失败 {len(failed)}")
+            return {"written": written, "failed": failed, "total": total, "key": key.upper()}
+        return self._guard(work)
     # ------------------------------------------------------------ 密码库（公共 / 用户 / 读卡历史）
     def keybox_list(self, lib: str = "public") -> dict:
         return self._ok({"lib": lib, "items": self.keybox.list(lib),

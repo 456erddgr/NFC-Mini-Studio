@@ -2268,6 +2268,7 @@ function bindUI() {
   if ($('#keyboxAdd')) $('#keyboxAdd').onclick = doKeyboxAdd;
   if ($('#keyboxClear')) $('#keyboxClear').onclick = doKeyboxClear;
   if ($('#keyboxVerify')) $('#keyboxVerify').onclick = doKeyboxVerify;
+  if ($('#btnFormatCard')) $('#btnFormatCard').onclick = doFormatCard;
 
   /* 设置 */
   if ($('#btnPickWall')) {
@@ -2461,6 +2462,23 @@ async function doKeyboxAdd() {
   } catch (e) { toast('添加失败：' + e.message, 'err'); }
 }
 
+async function doFormatCard() {
+  if (!state.connected) { toast('请先连接读卡器', 'err'); return; }
+  const ok = await confirmBox('格式化卡片（不可逆）',
+    '将用当前密钥把整卡 64 个块逐块写 0，密钥块写回厂商默认值。\n' +
+    '卡片数据不可恢复！\n\n确定继续吗？');
+  if (!ok) return;
+  try {
+    busy(true, '格式化卡片…');
+    setLed('busy');
+    const key = (($('#setKey') || {}).value || 'FFFFFFFFFFFF').replace(/\s/g, '').toUpperCase();
+    const res = await api('format_card', key, 0, true);
+    const bad = (res.failed || []).length;
+    toast(`格式化完成：成功 ${res.written}/${res.total} 块` + (bad ? `，失败 ${bad}` : ''), bad ? 'warn' : 'ok');
+    log(`格式化卡片：成功 ${res.written}/${res.total} 块` + (bad ? `，失败 ${bad}` : ''), bad ? 'warn' : 'ok');
+  } catch (e) { toast('格式化失败：' + e.message, 'err'); }
+  finally { busy(false); setLed(state.connected ? 'on' : ''); }
+}
 async function doKeyboxVerify() {
   const out = $('#keyboxVerifyOut');
   const btn = $('#keyboxVerify');
