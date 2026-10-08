@@ -215,3 +215,25 @@ ks_list_1 = e[16]    （1 字节）
 ...（ks_list 可持续到 e[22]）
 ```
 云端 `/recovery/pang` 请求体：`{uid, nt, ks_list_1..3, nr1..3}`。
+
+## 十五、算法 → 实现函数映射（逆向自 decode 分支 @887700）
+
+```
+pang         → Le(block, keyType)
+mfoc         → Pe(block, keyType, verified)
+staticnest   → De(block, keyType, verified)
+staticnest_v1→ Ce(block, keyType, verified)
+hardnested   → Te(block, keyType, verified)
+network      → we(block, keyType)      —— 内部调 ee.y(uid)：按 UID 查云端密钥库（= keygen！）
+history      → xe(block, keyType)      —— 用 storage "IC-FOUND-KEYS-<uid>" 复用已找到的密钥
+fm11rf08s    → He()
+```
+
+**重点确认**：
+- `network` 算法就是 **`ee.y(uid)`**，返回 `{status, keys, message}`，status=200 时给 keys
+  —— 这正是桌面端已经跑通的 **keygen 密钥库**（按 UID 返回候选密钥全表）。
+- `history` 用本地 storage `IC-FOUND-KEYS-<uid>` 缓存已找到的密钥，下次直接复用
+  —— 对应桌面端的「读卡历史库」。
+
+**待继续**：`Le`(pang) / `Pe`(mfoc) / `He`(fm11rf08s) 三个函数的内部实现
+（即 0x?? 采集命令与参数），需按函数名继续定位。
