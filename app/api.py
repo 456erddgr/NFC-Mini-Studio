@@ -993,6 +993,38 @@ class Api:
 
     def keybox_clear(self, lib: str = "history") -> dict:
         return self._ok(dict(self.keybox.clear(lib), stats=self.keybox.stats()))
+    def keybox_batch_verify(self, keys: Any = None, lib: str = "public",
+                            block: int = 0, key_type: int = 0) -> dict:
+        """批量验证密钥（对齐小程序 0x40 密钥缓存 + 0x41 批量验证的功能语义）。
+
+        keys 为空时取 lib 指定密码库的全部密钥；逐个用 0x0A 在设备端认证，
+        命中的就是该扇区的可用密钥，并写入读卡历史库。
+        """
+        def work():
+            if keys:
+                raw = str(keys).replace(",", " ").replace(";", " ")
+                key_list = [x for x in raw.split() if x]
+            else:
+                key_list = [str(r.get("key") or "") for r in self.keybox.list(lib)]
+            key_list = [k for k in key_list if k]
+            if not key_list:
+                raise NfcError("密码库为空，没有可验证的密钥")
+            self._on_device_log("info", f"批量验证：{len(key_list)} 把密钥，扇区 {block}，"
+                                       f"{'KEY A' if int(key_type) == 0 else 'KEY B'}")
+            res = self.device.batch_verify(key_list, block=block, key_type=key_type)
+            if res.get("hits"):
+                best = res["hits"][0]["key"]
+                self._cracked_keys[int(block)] = best
+                uid = (self._last_card or {}).get("uid", "")
+                self.keybox.record_history(uid, [h["key"] for h in res["hits"]],
+                                           card_type=(self._last_card or {}).get("card_type", ""),
+                                           note="批量验证命中")
+                self._on_device_log("ok", f"批量验证命中 {len(res['hits'])} 把，"
+                                          f"扇区 {block} 密钥 {best}")
+            else:
+                self._on_device_log("warn", f"批量验证未命中（共试 {res.get('tried', 0)} 把）")
+            return dict(res, stats=self.keybox.stats())
+        return self._guard(work)
     # ------------------------------------------------------------ 设置 / 外观
     def get_settings(self) -> dict:
         return self._ok(self.settings.data)

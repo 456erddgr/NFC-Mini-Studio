@@ -988,9 +988,16 @@ function applyConnectedUI(snap, address, name) {
     setText('#kvSn', info.sn || '—');
     const sn = $('#d3Sn');
     if (sn && info.sn) sn.textContent = 'SN ' + info.sn;
+    refreshBattery();
   }).catch(() => {});
 }
 
+async function refreshBattery() {
+  try {
+    const st = await api('device_state');
+    setText('#kvBattery', (st && st.battery_text) ? st.battery_text : '—');
+  } catch (e) { setText('#kvBattery', '—'); }
+}
 function maybeAutoFind() {
   if (!state.connected) return;
   if (state.mode === 'wired') {
@@ -1035,6 +1042,7 @@ async function doRefreshInfo() {
     setText('#kvSn', info.sn || '—');
     const sn = $('#d3Sn');
     if (sn && info.sn) sn.textContent = 'SN ' + info.sn;
+    refreshBattery();
     toast('设备信息已刷新', 'ok');
   } catch (e) { toast(e.message, 'err'); }
 }
@@ -2227,6 +2235,7 @@ function bindUI() {
   if ($('#kbTabHistory')) $('#kbTabHistory').onclick = () => setKeyboxTab('history');
   if ($('#keyboxAdd')) $('#keyboxAdd').onclick = doKeyboxAdd;
   if ($('#keyboxClear')) $('#keyboxClear').onclick = doKeyboxClear;
+  if ($('#keyboxVerify')) $('#keyboxVerify').onclick = doKeyboxVerify;
 
   /* 设置 */
   if ($('#btnPickWall')) {
@@ -2419,6 +2428,28 @@ async function doKeyboxAdd() {
   } catch (e) { toast('添加失败：' + e.message, 'err'); }
 }
 
+async function doKeyboxVerify() {
+  const out = $('#keyboxVerifyOut');
+  const btn = $('#keyboxVerify');
+  if (btn) btn.disabled = true;
+  if (out) out.textContent = '正在逐把认证…';
+  try {
+    const block = +($('#keyboxBlock') ? $('#keyboxBlock').value : 0) || 0;
+    const kt = +($('#keyboxKeyType') ? $('#keyboxKeyType').value : 0) || 0;
+    const r = await api('keybox_batch_verify', null, keyboxLib, block, kt);
+    const hits = (r && r.hits) || [];
+    const text = hits.length
+      ? `命中 ${hits.length} 把：扇区 ${block} KEY ${kt === 0 ? 'A' : 'B'} → ${hits[0].key}`
+      : `未命中（共试 ${(r && r.tried) || 0} 把）`;
+    if (out) out.textContent = text;
+    toast(text, hits.length ? 'ok' : 'warn');
+    log('批量验证：' + text, hits.length ? 'ok' : 'warn');
+    if (hits.length) loadKeybox('history');
+  } catch (e) {
+    if (out) out.textContent = '批量验证失败：' + e.message;
+    toast('批量验证失败：' + e.message, 'err');
+  } finally { if (btn) btn.disabled = false; }
+}
 async function doKeyboxClear() {
   const name = keyboxLib === 'public' ? '公共资源库' : (keyboxLib === 'user' ? '用户密钥库' : '读卡历史库');
   const ok = await confirmBox('清空密码库', `确定清空「${name}」吗？`);
@@ -2535,6 +2566,14 @@ async function loadBackend() {
     if ($('#scanAutoCrack')) $('#scanAutoCrack').checked = state.settings.auto_crack !== false;
     renderCrackMode(state.settings.crack_mode === 'local' ? 'local' : 'cloud');
     loadKeybox('public');
+    const kb = $('#keyboxBlock');
+    if (kb && !kb.options.length) {
+      for (let i = 0; i < 16; i++) {
+        const o = document.createElement('option');
+        o.value = String(i); o.textContent = '扇区 ' + i;
+        kb.appendChild(o);
+      }
+    }
     if ($('#setCloudEndpoint')) $('#setCloudEndpoint').value = state.settings.cloud_endpoint || '';
     if ($('#setCloudTimeout')) $('#setCloudTimeout').value = state.settings.cloud_timeout || 8;
     const S = state.settings || {};

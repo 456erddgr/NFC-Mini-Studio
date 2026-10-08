@@ -193,6 +193,7 @@
             <div class="kv"><label>MAC / 端口</label><b id="kvMac" class="mono">—</b></div>
             <div class="kv"><label>固件版本</label><b id="kvVer">—</b></div>
             <div class="kv"><label>设备序列号</label><b id="kvSn" class="mono">—</b></div>
+            <div class="kv"><label>设备电量</label><b id="kvBattery">—</b></div>
             <div class="kv"><label>卡上芯片</label><b id="kvChip">—</b></div>
           </div>
           <div class="row mt">
@@ -669,6 +670,15 @@
             <input class="input mono grow" id="keyboxInput" placeholder="12 位 Hex 密钥，多个用逗号/空格分隔">
             <button class="btn primary" id="keyboxAdd">添加到用户库</button>
             <button class="btn ghost" id="keyboxClear">清空当前库</button>
+          </div>
+          <div class="row wrap mt">
+            <select class="input" id="keyboxBlock"></select>
+            <select class="input" id="keyboxKeyType">
+              <option value="0">KEY A</option>
+              <option value="1">KEY B</option>
+            </select>
+            <button class="btn primary" id="keyboxVerify">批量验证</button>
+            <span class="hint grow" id="keyboxVerifyOut">对当前密码库逐把认证（对齐小程序 0x40 缓存 + 0x41 验证功能）。</span>
           </div>
           <div class="keybox-list mt" id="keyboxList"></div>
           <p class="hint">公共资源库＝厂商常用密钥表；用户密钥库＝自己新增/导入；读卡历史库＝每次读卡破解命中的 UID 与密钥。</p>

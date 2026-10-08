@@ -466,8 +466,17 @@ class NfcDevice:
         }
 
     def device_state(self) -> dict:
+        """0x02 设备状态。实测响应形如 02 19 00 00 00 00 01：
+        第 2 字节在 1..100 区间时视为电量百分比（对齐小程序「电量显示」开关）。"""
         d = self.request(bytes([CMD.STATE]), timeout=4.0)
-        return {"raw": fmt_hex(d), "status": _status_code(d), "status_text": _status_text(d)}
+        battery = None
+        if len(d) >= 2:
+            val = int(d[1])
+            if 1 <= val <= 100:
+                battery = val
+        return {"raw": fmt_hex(d), "status": _status_code(d), "status_text": _status_text(d),
+                "battery": battery,
+                "battery_text": (f"{battery}%" if battery is not None else "—")}
 
     # ------------------------------------------------------------ 寻卡 / 识卡
     def find_card(self) -> dict:
@@ -549,6 +558,38 @@ class NfcDevice:
                 last = f"{KEY_TYPE.get(kt)}: {exc}"
                 continue
         raise NfcError(f"密钥认证失败（已依次尝试 KEY A / KEY B）：{last}", 8)
+
+    def batch_verify(self, keys, block: int = 0, key_type: int = 0, timeout: float = 4.0,
+                     progress=None, should_stop=None) -> dict:
+        """批量验证密钥（对齐小程序「密钥缓存 + 批量验证」0x40/0x41 的功能语义）。
+
+        逐个用 0x0A 认证设备端验证；命中的密钥即该扇区可用密钥。
+        比直接下发 0x40 缓存更稳——不依赖固件对批量指令的实现程度。
+        """
+        keys = list(keys or [])
+        hits, tried, errors = [], 0, 0
+        total = len(keys)
+        for idx, raw in enumerate(keys, start=1):
+            if should_stop and should_stop():
+                break
+            try:
+                key = _as_key(raw)
+            except Exception:
+                continue
+            tried += 1
+            try:
+                self.auth(block, key, key_type, timeout=timeout)
+                hits.append({"key": key.hex().upper(), "key_type": int(key_type) & 1,
+                             "block": int(block) & 0xFF})
+            except NfcError:
+                errors += 1
+            if progress:
+                try:
+                    progress(idx, total, f"验证 {key.hex().upper()}（{idx}/{total}）")
+                except Exception:
+                    pass
+        return {"ok": bool(hits), "hits": hits, "tried": tried, "failed": errors,
+                "total": total, "block": int(block) & 0xFF, "key_type": int(key_type) & 1}
 
     def read_block(self, block: int, key_type: int = 0, timeout: float = 8.0) -> bytes:
         d = self.request(bytes([CMD.READ_BLOCK, int(block) & 0xFF, int(key_type) & 1]),
