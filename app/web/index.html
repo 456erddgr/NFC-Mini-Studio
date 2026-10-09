@@ -5,6 +5,7 @@
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>NFC Mini Studio</title>
 <link rel="stylesheet" href="css/style.css">
+<link rel="stylesheet" href="css/macos.css">
 </head>
 <body>
 
@@ -24,6 +25,15 @@
 
   <!-- 侧边栏 -->
   <aside class="sidebar glass">
+    <!-- 交通灯置于窗口左上角（macOS 惯例，与侧边栏同列） -->
+    <div class="titlebar-strip pywebview-drag-region">
+      <div class="win-controls">
+        <button class="wdot close" id="wClose" title="关闭"></button>
+        <button class="wdot min"   id="wMin"   title="最小化"></button>
+        <button class="wdot max"   id="wMax"   title="最大化"></button>
+      </div>
+    </div>
+
     <div class="brand pywebview-drag-region">
       <div class="logo"><span>N</span></div>
       <div class="brand-text">
@@ -59,11 +69,6 @@
   <!-- 主区域 -->
   <main class="main">
     <header class="titlebar pywebview-drag-region">
-      <div class="win-controls">
-        <button class="wdot close" id="wClose" title="关闭"></button>
-        <button class="wdot min"   id="wMin"   title="最小化"></button>
-        <button class="wdot max"   id="wMax"   title="最大化"></button>
-      </div>
       <div class="titlebar-title" id="tbTitle">设备</div>
       <div class="titlebar-right"><span id="tbHint">等待操作</span></div>
     </header>
@@ -75,109 +80,60 @@
 
         <div class="grid-device">
 
-          <!-- 设备外观 3D -->
+          <!-- 设备外观 -->
           <div class="card glass showcase">
             <div class="card-head">
               <h2>设备外观</h2>
               <span class="badge" id="ledBadge">未连接</span>
             </div>
-            <div class="stage" id="deviceStage">
-              <div class="stage-halo"></div>
-              <div class="stage-orbit o1"></div>
-              <div class="stage-orbit o2"></div>
-              <div class="dev3d" id="deviceModel">
-                <div class="d3-face d3-front">
-                  <img class="d3-photo" id="deviceFace" src="assets/device_front_view.svg"
-                       alt="NFC Mini 2.0 读卡器正视图" draggable="false">
-                  <span class="d3-glare"></span>
-                  <span class="d3-led" id="devLed"></span>
-                </div>
-                <div class="d3-face d3-back">
-                  <div class="d3-back-plate">
-                    <span class="d3-back-logo">NFC</span>
-                    <span class="d3-back-text mono">NFC Mini 2.0<br>BLE 5.0 · 13.56 MHz</span>
-                    <span class="d3-back-sn mono" id="d3Sn">SN —</span>
-                  </div>
-                </div>
-                <!-- 机身厚度：由 initDevice3D() 注入多层「同形圆角」切片，取代原先会露出直角的四块侧板 -->
-                <div class="d3-shell" id="d3Shell" aria-hidden="true"></div>
+            <div class="stage device-stage" id="deviceStage">
+              <div class="device-glow"></div>
+              <div class="device-model" id="deviceModel">
+                <div class="device-depth" id="deviceDepth" aria-hidden="true"></div>
+                <img class="device-photo" id="deviceFace" src="assets/device_user_cut.png"
+                     alt="NFC Mini 2.0" draggable="false">
+                <span class="device-led" id="devLed"></span>
               </div>
-              <div class="dev-shadow"></div>
-              <div class="dev-floor"></div>
+              <div class="device-shadow"></div>
             </div>
-            <p class="hint center">按住设备左右拖动可手动旋转；指示灯随连接与读写状态联动。</p>
-            <div class="row center">
+            <div class="row center device-spin-controls">
               <button class="btn ghost sm" id="btnSpinToggle">暂停旋转</button>
               <button class="btn ghost sm" id="btnSpinReset">正对复位</button>
             </div>
             <label class="field range-field">
-              <span>自转速度 <b id="lblSpin">18</b> °/s</span>
-              <input type="range" id="rngSpin" min="0" max="60" value="18">
+              <span>自转速度 <b id="lblSpin">6</b> °/s</span>
+              <input type="range" id="rngSpin" min="0" max="24" value="6">
             </label>
+            <p class="device-caption">NFC Mini 2.0 · 蓝牙 BLE 5.0 · 13.56 MHz</p>
+            <p class="hint center">官方连接方式仅蓝牙无线。</p>
           </div>
 
           <!-- 连接 -->
-          <div class="card glass">
+          <div class="card glass conn-card">
             <div class="card-head">
               <h2>连接方式</h2>
               <span class="badge" id="scanBadge">就绪</span>
             </div>
 
-            <div class="seg" id="connSeg">
-              <button class="seg-item is-active" id="tabBle">蓝牙无线</button>
-              <button class="seg-item" id="tabUsb">USB 有线</button>
+            <div class="conn-mode">
+              <span class="conn-mode-ico">ᛒ</span>
+              <div>
+                <b>蓝牙无线</b>
+                <p>NFC Mini 2.0 官方通信方式。连接前请先让读卡器与手机微信断开。</p>
+              </div>
+              <span class="badge ok">官方协议</span>
             </div>
 
             <div class="pane" id="paneBle">
               <div class="row">
                 <button class="btn primary lg" id="btnScan">一键扫描设备</button>
-                <button class="btn" id="btnQuickConnect">扫描并直连</button>
+                <button class="btn" id="btnQuickConnect">扫描并连接</button>
               </div>
               <div class="scanline" id="scanline"><span></span></div>
               <ul class="dev-list" id="devList">
                 <li class="empty">点击「一键扫描设备」开始搜索附近的读卡器</li>
               </ul>
-            </div>
-
-            <div class="pane is-hidden" id="paneUsb">
-              <div class="row wrap">
-                <label class="field">
-                  <span>波特率</span>
-                  <select class="input" id="baudSel"></select>
-                </label>
-                <button class="btn primary" id="btnScanPorts">枚举串口</button>
-                <button class="btn" id="btnProbePort">握手测试</button>
-              </div>
-              <ul class="dev-list" id="portList">
-                <li class="empty">点击「枚举串口」列出本机 USB 串口设备</li>
-              </ul>
-              <p class="hint">USB 模式会自动排除蓝牙虚拟串口；若列表为空，请先安装 CH340 / CP210x 驱动。</p>
-
-              <div class="wired-block">
-                <div class="card-head">
-                  <h2>USB 直连（厂商通道）</h2>
-                  <span class="badge" id="wiredBadge">未连接</span>
-                </div>
-                <div class="row wrap">
-                  <button class="btn primary" id="btnScanWired">发现有线设备</button>
-                  <button class="btn" id="btnProbeWired">握手探测</button>
-                  <button class="btn danger" id="btnWiredDisconnect">断开有线</button>
-                </div>
-                <ul class="dev-list" id="wiredList">
-                  <li class="empty">点「发现有线设备」枚举本机 USB（厂商自定义类 + Bulk 端点）</li>
-                </ul>
-                <div class="row wrap">
-                  <label class="field grow">
-                    <span>试发帧（十六进制）</span>
-                    <input class="input mono" id="wiredFrame" spellcheck="false"
-                           value="FF 01 01 01 01 FE">
-                  </label>
-                  <button class="btn primary" id="btnSendWired">试发帧</button>
-                  <button class="btn ghost" id="btnClearWiredLog">清空收发日志</button>
-                </div>
-                <div class="raw-log mono" id="wiredLog"><span class="empty">原始收发日志为空</span></div>
-                <p class="hint" id="wiredHint">有线通道走厂商自定义接口的 Bulk 端点（本机实测：OUT 0x01 / IN 0x81，64 字节）。默认帧是本项目协议的 INFO 帧；本机实测该设备与 6 字节私有帧均暂无应答，这里会如实显示「帧已发出、无应答」，不会假装成功。</p>
-              </div>
+              <p class="hint">设备未出现时，请确认读卡器已开机、未被手机微信占用，并靠近电脑蓝牙范围。</p>
             </div>
           </div>
         </div>
@@ -190,7 +146,7 @@
           <div class="kv-grid" id="devInfo">
             <div class="kv"><label>连接状态</label><b id="kvState">未连接</b></div>
             <div class="kv"><label>连接通道</label><b id="kvMode">—</b></div>
-            <div class="kv"><label>MAC / 端口</label><b id="kvMac" class="mono">—</b></div>
+            <div class="kv"><label>蓝牙 MAC</label><b id="kvMac" class="mono">—</b></div>
             <div class="kv"><label>固件版本</label><b id="kvVer">—</b></div>
             <div class="kv"><label>设备序列号</label><b id="kvSn" class="mono">—</b></div>
             <div class="kv"><label>设备电量</label><b id="kvBattery">—</b></div>
@@ -211,8 +167,8 @@
           <div class="card glass card-find">
             <div class="find-visual">
               <div class="chip-card" id="chipCard">
-                <div class="chip"></div>
-                <div class="wave"></div>
+                <span class="card-corner mono">NFC MINI 2.0</span>
+                <span class="card-waves" aria-hidden="true"><i></i><i></i><i></i></span>
                 <div class="chip-uid" id="chipUid">—— —— —— ——</div>
                 <div class="chip-class" id="chipClass">等待寻卡</div>
               </div>
@@ -633,7 +589,7 @@
 
             <div class="about">
               <h3>关于</h3>
-              <p>NFC Mini Studio <b id="aboutVer">2.2.0</b></p>
+              <p>NFC Mini Studio <b id="aboutVer">2.3.0</b></p>
               <p class="hint">协议来自 NFC Mini 2.0 微信小程序 BLE 私有协议逆向，仅供自有设备研究使用。</p>
             </div>
           </div>

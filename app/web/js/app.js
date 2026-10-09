@@ -1,10 +1,8 @@
 /* ============================================================
-   NFC Mini Studio · 前端逻辑 v2.2.0
-   · 三通道连接（蓝牙 BLE / USB 串口 / USB 直连厂商通道）
-   · 寻卡自动识卡（IC / ID / UID）+ 后台级联破解
-   · 读写 / 复制 / 粘贴全流程进度条
-   · 设备 3D 展示（真实照片贴图 + 苹果台式机式旋转动画）
-   · macOS 液态玻璃外观设置（磨砂 / 高光 / 圆角 / 背景可换）
+   NFC Mini Studio frontend logic v2.3
+   - Official BLE transport only
+   - Flat product view; wallpaper-tinted NFC card
+   - Liquid-glass UI, card tools, cracking and progress feedback
    ============================================================ */
 'use strict';
 
@@ -23,18 +21,32 @@ const state = {
   dump: {},
   selectedMethod: 'staticnested',
   busy: false,
-  selPort: '',
-  spin: { on: true, speed: 18, deg: 0, dragging: false },
+  spin: { on: true, speed: 6, deg: 0, dragging: false },
   crack: { handle: '', running: false, sector: 0, chain: [], attempts: [] },
   crack_mode: 'cloud',
   engine: null,
-  wired: { devices: [], sel: null, connected: false, logMark: 0, timer: 0 },
   jobs: {},
   timer: 0,
 };
 
 /* ---------------------------------------------------------- 内置背景预设 */
 const PRESETS = [
+  { id: 'sonoma', name: 'macOS 索诺玛',
+    css: "radial-gradient(130% 120% at 8% 4%, #1b2f8f, transparent 55%)," +
+         "radial-gradient(120% 120% at 92% 8%, #7a2bd6, transparent 52%)," +
+         "radial-gradient(140% 130% at 78% 104%, #ff6a2b, transparent 58%)," +
+         "radial-gradient(120% 120% at 20% 100%, #c02a7a, transparent 55%)," +
+         "linear-gradient(160deg, #05070f, #0a0f22 45%, #04050a)" },
+  { id: 'monterey', name: 'macOS 蒙特雷',
+    css: "radial-gradient(120% 120% at 12% 8%, #0a4d8c, transparent 55%)," +
+         "radial-gradient(110% 110% at 88% 18%, #1f7a8c, transparent 52%)," +
+         "radial-gradient(130% 130% at 60% 106%, #0b2a5e, transparent 58%)," +
+         "linear-gradient(155deg, #04070f, #071324 45%, #03060c)" },
+  { id: 'graphite', name: 'macOS 石墨',
+    css: "radial-gradient(120% 120% at 18% 6%, #33343a, transparent 58%)," +
+         "radial-gradient(110% 110% at 84% 20%, #45464d, transparent 52%)," +
+         "radial-gradient(130% 130% at 50% 106%, #1b1c20, transparent 58%)," +
+         "linear-gradient(150deg, #0c0d11, #17181d 45%, #08090c)" },
   { id: 'aurora', name: '极光',
     css: "radial-gradient(120% 120% at 15% 10%, #1b2a6b, transparent 55%)," +
          "radial-gradient(110% 110% at 85% 15%, #6a2a86, transparent 52%)," +
@@ -134,7 +146,7 @@ function confirmBox(title, text) {
 
 /* 后端接口就绪判定 */
 const CORE_API = ['app_info', 'get_settings', 'save_settings', 'list_wallpapers',
-                  'card_list', 'scan', 'scan_ports', 'connect', 'connect_usb',
+                  'card_list', 'scan', 'connect',
                   'find_card', 'status',
                   /* 破解双模式：引擎状态与本地向量自检（后端 app/api.py L374/L379 暴露） */
                   'crack_engine_status', 'crack_vectors'];
@@ -144,10 +156,6 @@ function apiReady() {
   if (!a) return false;
   return CORE_API.every(k => typeof a[k] === 'function');
 }
-
-/* v2.1 新增：USB 直连（厂商通道）必需接口 */
-const WIRED_API = ['wired_devices', 'probe_wired', 'connect_wired',
-                   'wired_send_frame', 'wired_log'];
 
 const sleep = ms => new Promise(r => setTimeout(r, ms));
 
@@ -421,9 +429,19 @@ function renderAttempts() {
 }
 
 function showCrackKeys(keys, sector) {
-  const html = '<h4>扇区密钥</h4>' + keys.map(k =>
-    `<div><span class="k">扇区 ${sector}</span> → <span class="g">${escapeHtml(k)}</span></div>`
-  ).join('') + '<p class="hint">点击可复制到剪贴板。</p>';
+  const all = (sector === -1 || sector == null) ? (state.crack.sectorKeys || {}) : null;
+  let body;
+  if (all && Object.keys(all).length) {
+    const rows = Object.keys(all).sort((a, b) => (+a) - (+b))
+      .map(s => `<div><span class="k">扇区 ${s}</span> → ` +
+                `<span class="g">${escapeHtml(all[s])}</span></div>`).join('');
+    body = `<h4>全卡密钥（${Object.keys(all).length}/16 个扇区已解）</h4>` + rows;
+  } else {
+    body = '<h4>扇区密钥</h4>' + keys.map(k =>
+      `<div><span class="k">${sector === -1 ? '全卡' : '扇区 ' + sector}</span> → ` +
+      `<span class="g">${escapeHtml(k)}</span></div>`).join('');
+  }
+  const html = body + '<p class="hint">点击可复制到剪贴板。</p>';
   ['#crackResultMini', '#crackResult'].forEach(sel => {
     const el = $(sel);
     if (!el) return;
@@ -465,42 +483,29 @@ function switchView(name) {
 function initDevice3D() {
   const stage = $('#deviceStage');
   const model = $('#deviceModel');
-  if (!stage || !model) return;
+  const face = $('#deviceFace');
+  const depth = $('#deviceDepth');
+  if (!stage || !model || !face) return;
 
-  /* 机身厚度：注入多层同形圆角切片（替代原先会露出直角的四块侧板），保证旋转时外轮廓始终是圆角 */
-  const shell = $('#d3Shell');
-  if (shell && !shell.childElementCount) {
-    const DEPTH = 18, LAYERS = 9;
+  if (depth && !depth.childElementCount) {
+    /* v2.4.0：厚度层改用纯色剪影（不再复用整张正面照 22 次）。
+       旧实现把 620x1020 的照片叠 22 层 + 递减亮度 + 每层投影，
+       在深色背景上会糊成一块暗色剪影，正面看像“模型没生效”。
+       现在正面只保留 1 张照片，侧面由纯色渐变剪影叠出薄机身厚度。 */
+    const LAYERS = 14;
     for (let i = 0; i < LAYERS; i++) {
-      const t = ((i / (LAYERS - 1)) - 0.5) * 0.94;  /* -0.47 … +0.47 → z = -8.46px … +8.46px，严格小于正脸 ±9px */
-      const shade = Math.abs(t) * 2;               /* 0（最外层）… 1（中间层） */
-      const s = document.createElement('span');
-      s.className = 'd3-slice' + (t <= -0.4 ? ' hi' : '');
-      s.style.transform = `translateZ(${(t * DEPTH).toFixed(2)}px)`;
-      s.style.filter = `brightness(${(1 - shade * 0.22).toFixed(3)})`;
-      shell.appendChild(s);
+      const slice = document.createElement('div');
+      slice.className = 'device-depth-slice';
+      slice.setAttribute('aria-hidden', 'true');
+      const z = 6.5 - (13 * i) / (LAYERS - 1);
+      slice.style.transform = `translateZ(${z.toFixed(2)}px)`;
+      depth.appendChild(slice);
     }
   }
-
-  /* 正视图资源自检：切片收窄后正面由该 SVG 独立呈现，一旦它 404/解码失败正面就只剩底色
-     （表现为"纯白块"），这里显式把加载失败暴露到控制台，便于定位是资源问题还是遮挡问题 */
-  const face = $('#deviceFace');
-  if (face) {
-    const reportFace = () => {
-      if (face.naturalWidth) return;
-      console.warn('[device3d] 正视图未加载（正面会只剩底色）：' + face.getAttribute('src'));
-    };
-    if (face.complete) reportFace();
-    else face.addEventListener('load', reportFace, { once: true });
-    face.addEventListener('error', reportFace, { once: true });
-  }
+  face.style.transform = 'translateZ(7.5px)';
 
   function paint() {
-    const deg = state.spin.deg;
-    model.style.transform = `rotateX(-7deg) rotateY(${deg}deg)`;
-    const glare = 0.5 + 0.5 * Math.cos(deg * Math.PI / 180);
-    const g = $('.d3-glare');
-    if (g) g.style.setProperty('--glare', glare.toFixed(3));
+    model.style.setProperty('--spin', `${state.spin.deg.toFixed(2)}deg`);
   }
 
   let last = performance.now();
@@ -537,7 +542,7 @@ function initDevice3D() {
 function setLed(kind) {
   const led = $('#devLed');
   if (!led) return;
-  led.className = 'd3-led' + (kind ? ' ' + kind : '');
+  led.className = 'device-led' + (kind ? ' ' + kind : '');
   const map = { '': '未连接', on: '已连接', busy: '通信中', err: '异常' };
   setBadge('#ledBadge', map[kind] || '未连接', kind === 'on' ? 'ok' : (kind === 'busy' ? 'info live' : (kind === 'err' ? 'err' : '')));
 }
@@ -637,384 +642,23 @@ async function doQuickConnect() {
   }
 }
 
-/* ---------------------------------------------------------- 连接：USB 串口 */
-function fillBaud(choices, current) {
-  const sel = $('#baudSel');
-  if (!sel) return;
-  const list = choices && choices.length ? choices : [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600];
-  sel.innerHTML = list.map(b => `<option value="${b}">${b}</option>`).join('');
-  sel.value = String(current || 115200);
-  if (!sel.value) sel.value = '115200';
-}
-
-function portName(p) {
-  return p.port || p.device || p.name || '';
-}
-
-function renderPorts(data) {
-  const ul = $('#portList');
-  if (!ul) return;
-  const ports = (data && data.ports) || [];
-  ul.innerHTML = '';
-  if (!ports.length) {
-    ul.innerHTML = '<li class="empty">没有发现 USB 串口。请插好读卡器，必要时安装 CH340 / CP210x 驱动</li>';
-    return;
-  }
-  ports.forEach((p, i) => {
-    const name = portName(p);
-    const desc = p.description || p.desc || p.hwid || p.chip || '';
-    const li = document.createElement('li');
-    li.dataset.port = name;
-    li.innerHTML = `
-      <div class="dev-ico">⌁</div>
-      <div class="dev-main">
-        <b>${escapeHtml(name)}</b>
-        <span>${escapeHtml(desc || 'USB 串口设备')}</span>
-      </div>
-      <div class="dev-actions">
-        <button class="btn sm" data-act="probe">握手</button>
-        <button class="btn primary sm" data-act="conn">连接</button>
-      </div>`;
-    li.onclick = e => {
-      if (e.target.closest('button')) return;
-      $$('#portList li').forEach(x => x.classList.remove('sel'));
-      li.classList.add('sel');
-      state.selPort = name;
-    };
-    li.querySelectorAll('[data-act]').forEach(b => {
-      b.onclick = ev => {
-        ev.stopPropagation();
-        state.selPort = name;
-        $$('#portList li').forEach(x => x.classList.toggle('sel', x === li));
-        if (b.dataset.act === 'conn') doConnectUsb(name);
-        else doProbePort(name);
-      };
-    });
-    ul.appendChild(li);
-    if (i === 0) { state.selPort = name; li.classList.add('sel'); }
-  });
-}
-
-async function doScanPorts() {
-  try {
-    busy(true, '枚举串口…');
-    setBadge('#scanBadge', '枚举中', 'info live');
-    setHtml('#portList', '<li class="empty">正在枚举本机串口…</li>');
-    const data = await api('scan_ports');
-    fillBaud(data.baud_choices, data.default_baud || (state.settings.baud || 115200));
-    renderPorts(data);
-    const n = ((data && data.ports) || []).length;
-    const usb = ((data && data.usb_devices) || []).length;
-    setBadge('#scanBadge', `串口 ${n} / USB ${usb}`, n ? 'ok' : 'warn');
-    log(`串口枚举完成：${n} 个串口，${usb} 个 USB 设备`, n ? 'ok' : 'warn');
-  } catch (e) {
-    toast('枚举失败：' + e.message, 'err');
-    setBadge('#scanBadge', '枚举失败', 'err');
-  } finally {
-    busy(false);
-  }
-}
-
-async function doProbePort(port) {
-  const target = port || state.selPort || currentPortFromList();
-  if (!target) { toast('请先枚举并选择一个串口', 'err'); return; }
-  const baud = +($('#baudSel') ? $('#baudSel').value : 115200) || 115200;
-  try {
-    busy(true, `握手测试 ${target}…`);
-    const res = await api('probe_serial', target, baud);
-    const ok = !!(res && (res.ok === undefined ? true : res.ok));
-    const ver = res && (res.version || res.fw || '');
-    log(`握手 ${target}@${baud}：${ok ? '收到协议响应' : '无有效响应'}` +
-        (ver ? ` · 固件 ${ver}` : ''), ok ? 'ok' : 'warn');
-    toast(ok ? `${target} 握手成功，可点「连接」` : `${target} 未按本协议应答`, ok ? 'ok' : 'err');
-  } catch (e) {
-    toast('握手失败：' + e.message, 'err');
-    log(`握手 ${target} 失败：${e.message}`, 'err');
-  } finally {
-    busy(false);
-  }
-}
-
-function currentPortFromList() {
-  const li = $('#portList li.sel');
-  return li ? li.dataset.port : '';
-}
-
-async function doConnectUsb(port) {
-  const target = port || state.selPort || currentPortFromList();
-  if (!target) { toast('请先枚举并选择一个串口', 'err'); return; }
-  const baud = +($('#baudSel') ? $('#baudSel').value : 115200) || 115200;
-  try {
-    busy(true, 'USB 连接中…');
-    setLed('busy');
-    setText('#kvState', '连接中…');
-    const snap = await api('connect_usb', target, baud);
-    state.connected = true;
-    state.mode = 'usb';
-    state.address = target;
-    applyConnectedUI(snap, target, `USB ${target}`);
-    toast('USB 已连接', 'ok');
-    log(`已通过 USB 连接 ${target} @ ${baud}`, 'ok');
-    setTimeout(maybeAutoFind, 700);
-  } catch (e) {
-    state.connected = false;
-    setLed('err');
-    setText('#kvState', '连接失败');
-    setBadge('#connBadge', '连接失败', 'err');
-    toast('USB 连接失败：' + e.message, 'err');
-    log('USB 连接失败：' + e.message, 'err');
-  } finally {
-    busy(false);
-  }
-}
-
-/* ---------------------------------------------------------- USB 直连（厂商通道，v2.1） */
-function hex2(v) {
-  const n = Number(v || 0);
-  return n ? '0x' + n.toString(16).padStart(2, '0').toUpperCase() : '—';
-}
-
-function currentWiredFromList() {
-  const li = $('#wiredList li.sel');
-  if (!li) return null;
-  const key = li.dataset.key;
-  return (state.wired.devices || []).find(d => (d.vid_pid + '#' + (d.serial || '')) === key
-    || (d.vid_pid + '#' + d.vid_pid) === key) || null;
-}
-
-function renderWired(devices) {
-  const ul = $('#wiredList');
-  if (!ul) return;
-  const list = devices || [];
-  state.wired.devices = list;
-  state.wired.sel = list[0] || null;
-  ul.innerHTML = '';
-  if (!list.length) {
-    ul.innerHTML = '<li class="empty">未发现可直连的 USB 设备（需厂商自定义类 + Bulk 端点）。' +
-      '请插好读卡器，必要时安装 WinUSB / libusb 驱动</li>';
-    return;
-  }
-  list.forEach((d, i) => {
-    const key = d.vid_pid + '#' + (d.serial || i);
-    const li = document.createElement('li');
-    li.dataset.key = key;
-    const tag = d.known ? '已知型号' : '通用自定义类';
-    li.innerHTML = `
-      <div class="dev-ico">⌘</div>
-      <div class="dev-main">
-        <b>${escapeHtml(d.label || d.vid_pid)}
-          <span class="badge ${d.known ? 'ok' : 'info'}">${tag}</span></b>
-        <span>${escapeHtml(d.vid_pid)} · 接口 ${(d.interfaces || []).length} 个 ·
-          bulk out ${hex2(d.bulk_out)} / in ${hex2(d.bulk_in)}
-          ${d.serial ? ' · SN ' + escapeHtml(d.serial) : ''}</span>
-      </div>
-      <div class="dev-actions">
-        <button class="btn sm" data-act="probe">握手</button>
-        <button class="btn primary sm" data-act="conn">连接</button>
-      </div>`;
-    li.onclick = e => {
-      if (e.target.closest('button')) return;
-      $$('#wiredList li').forEach(x => x.classList.remove('sel'));
-      li.classList.add('sel');
-      state.wired.sel = d;
-    };
-    li.querySelectorAll('[data-act]').forEach(b => {
-      b.onclick = ev => {
-        ev.stopPropagation();
-        state.wired.sel = d;
-        $$('#wiredList li').forEach(x => x.classList.toggle('sel', x === li));
-        if (b.dataset.act === 'conn') doConnectWired(d);
-        else doProbeWired(d);
-      };
-    });
-    ul.appendChild(li);
-    if (i === 0) li.classList.add('sel');
-  });
-}
-
-async function doScanWired() {
-  try {
-    busy(true, '发现有线设备…');
-    setBadge('#wiredBadge', '枚举中', 'info live');
-    const line = $('#scanline');
-    if (line) line.classList.add('on');
-    setHtml('#wiredList', '<li class="empty">正在枚举本机 USB 设备…</li>');
-    const res = await api('wired_devices');
-    const list = Array.isArray(res) ? res : ((res && res.devices) || []);
-    renderWired(list);
-    setBadge('#wiredBadge', list.length ? `发现 ${list.length} 个` : '未发现',
-             list.length ? 'ok' : 'warn');
-    log(`USB 有线枚举完成：${list.length} 个可直连设备`, list.length ? 'ok' : 'warn');
-    if (!list.length) toast('未发现可直连的 USB 设备', 'warn');
-  } catch (e) {
-    setBadge('#wiredBadge', '枚举失败', 'err');
-    toast('有线枚举失败：' + e.message, 'err');
-    log('有线枚举失败：' + e.message, 'err');
-  } finally {
-    const line = $('#scanline');
-    if (line) line.classList.remove('on');
-    busy(false);
-  }
-}
-
-async function doProbeWired(d) {
-  const dev = d || state.wired.sel || currentWiredFromList();
-  if (!dev) { toast('请先发现并选择一个 USB 设备', 'err'); return; }
-  try {
-    busy(true, `握手探测 ${dev.label || dev.vid_pid}…`);
-    const res = await api('probe_wired', dev.vid, dev.pid, dev.serial || '');
-    const ok = !!(res && res.ok);
-    const sent = (res && res.sent) || [];
-    if (sent.length) log('有线握手已发出：' + sent.join(' | '), 'info');
-    if (res && res.raw) log('有线握手回包：' + res.raw, ok ? 'ok' : 'warn');
-    setBadge('#wiredBadge', ok ? '握手成功' : '无应答', ok ? 'ok' : 'warn');
-    setText('#wiredHint', (res && res.detail) || '—');
-    toast((res && res.detail) || (ok ? '握手成功' : '设备无应答'), ok ? 'ok' : 'warn');
-    log('有线握手结论：' + ((res && res.detail) || '—'), ok ? 'ok' : 'warn');
-    refreshWiredLog();
-  } catch (e) {
-    toast('握手失败：' + e.message, 'err');
-    log('有线握手失败：' + e.message, 'err');
-  } finally {
-    busy(false);
-  }
-}
-
-async function doConnectWired(d) {
-  const dev = d || state.wired.sel || currentWiredFromList();
-  if (!dev) { toast('请先发现并选择一个 USB 设备', 'err'); return; }
-  try {
-    busy(true, 'USB 直连中…');
-    setLed('busy');
-    setText('#kvState', '连接中…');
-    const snap = await api('connect_wired', dev.vid, dev.pid, dev.serial || '');
-    state.connected = true;
-    state.mode = 'wired';
-    state.address = dev.vid_pid;
-    state.wired.connected = true;
-    state.wired.sel = dev;
-    applyConnectedUI(snap, dev.vid_pid, dev.label);
-    setBadge('#wiredBadge', '已连接', 'ok');
-    const w = (snap && snap.wired) || {};
-    log(`USB 直连已打开 ${dev.label || ''} ${dev.vid_pid}（接口 ${w.iface}，` +
-        `bulk out ${hex2(dev.bulk_out)} / in ${hex2(dev.bulk_in)}）`, 'ok');
-    toast('USB 直连已连接', 'ok');
-    refreshWiredLog();
-    setTimeout(maybeAutoFind, 700);
-  } catch (e) {
-    state.connected = false;
-    state.wired.connected = false;
-    setLed('err');
-    setText('#kvState', '连接失败');
-    setBadge('#wiredBadge', '连接失败', 'err');
-    toast('USB 直连失败：' + e.message, 'err');
-    log('USB 直连失败：' + e.message, 'err');
-  } finally {
-    busy(false);
-  }
-}
-
-async function doWiredDisconnect() {
-  try {
-    await api('disconnect');
-  } catch (e) { /* 忽略 */ }
-  state.wired.connected = false;
-  state.connected = false;
-  setBadge('#wiredBadge', '未连接', '');
-  toast('USB 直连已断开', 'ok');
-  log('USB 直连已断开', 'info');
-}
-
-function parseHexFrame(text) {
-  const clean = String(text || '').replace(/0x/gi, ' ').replace(/[^0-9a-fA-F]/g, ' ');
-  const parts = clean.trim().split(/\s+/).filter(Boolean);
-  if (!parts.length) return '';
-  return parts.map(p => p.padStart(2, '0').slice(-2)).join(' ').toUpperCase();
-}
-
-async function doSendWiredFrame() {
-  const input = $('#wiredFrame');
-  const hex = parseHexFrame(input ? input.value : '');
-  if (!hex) { toast('请填写十六进制帧，例如 FF 06 01 00 00 00 00 FE', 'err'); return; }
-  if (input) input.value = hex;
-  try {
-    busy(true, '试发帧…');
-    const res = await api('wired_send_frame', hex, 1.5);
-    const replies = (res && res.replies) || [];
-    log(`有线试发 ${hex}（${(res && res.sent_len) || 0} 字节，耗时 ` +
-        `${(res && res.elapsed) || 0}s）→ ` +
-        (replies.length ? `收到 ${replies.length} 包回包` : '无应答'),
-        replies.length ? 'ok' : 'warn');
-    if (!replies.length) {
-      toast('帧已发出，但设备暂未应答', 'warn');
-      setText('#wiredHint', '帧已发出、无应答：固件可能仍使用私有帧格式，或端点需要先复位接口。');
-    } else {
-      replies.forEach(r => log('  ← ' + (r.hex || ''), 'ok'));
-      toast('收到设备回包', 'ok');
-    }
-    refreshWiredLog();
-  } catch (e) {
-    toast('试发失败：' + e.message, 'err');
-    log('有线试发失败：' + e.message, 'err');
-  } finally {
-    busy(false);
-  }
-}
-
-async function refreshWiredLog(clear) {
-  const box = $('#wiredLog');
-  if (!box) return;
-  try {
-    const res = await api('wired_log', 160, !!clear);
-    const items = (res && res.items) || [];
-    if (!items.length) {
-      box.innerHTML = '<span class="empty">原始收发日志为空</span>';
-      return;
-    }
-    box.innerHTML = items.map(it => {
-      const dir = it.dir === 'rx' ? 'rl-rx' : 'rl-tx';
-      const arrow = it.dir === 'rx' ? '←' : '→';
-      return `<div class="rl ${dir}"><span>${escapeHtml(it.ts || '')}</span>` +
-             `<span>${arrow}</span><span>${escapeHtml(it.hex || '')}</span>` +
-             `<span>(${it.len || 0}B)</span></div>`;
-    }).join('');
-    box.scrollTop = box.scrollHeight;
-  } catch (e) { /* 未连接时静默 */ }
-}
-
-async function clearWiredLog() {
-  await refreshWiredLog(true);
-  toast('已清空有线收发日志', 'ok');
-}
-
+/* ---------------------------------------------------------- Bluetooth BLE connection */
 function applyConnectedUI(snap, address, name) {
   snap = snap || {};
-  const mode = snap.mode || state.mode || '';
-  const modeText = mode === 'usb' ? 'USB 串口（有线）'
-    : (mode === 'wired' ? 'USB 直连（有线）' : '蓝牙无线');
   setLed('on');
   setText('#kvState', '已连接');
-  setText('#kvMode', modeText);
-  setText('#kvMac', (mode === 'usb' || mode === 'wired')
-    ? (snap.port || snap.wired && snap.wired.vid_pid || address || '—')
-    : (snap.mac || address || '—'));
+  setText('#kvMode', '蓝牙无线 · BLE');
+  setText('#kvMac', snap.mac || address || '—');
   setBadge('#connBadge', '已连接', 'ok');
-  if (mode === 'wired') setBadge('#wiredBadge', '已连接', 'ok');
   const pill = $('#connPill');
   if (pill) {
     pill.classList.add('on');
     const s = pill.querySelector('span');
-    if (s) s.textContent = snap.transport_label || name || '已连接';
-  }
-  if (snap.baud) {
-    const sel = $('#baudSel');
-    if (sel && !sel.value) sel.value = String(snap.baud);
+    if (s) s.textContent = snap.transport_label || name || '蓝牙已连接';
   }
   api('device_info').then(info => {
     setText('#kvVer', info.version || '—');
     setText('#kvSn', info.sn || '—');
-    const sn = $('#d3Sn');
-    if (sn && info.sn) sn.textContent = 'SN ' + info.sn;
     refreshBattery();
   }).catch(() => {});
 }
@@ -1030,40 +674,31 @@ async function refreshBattery() {
     setText('#kvBattery', (st && st.battery_text) ? st.battery_text : '—');
   } catch (e) { setText('#kvBattery', '—'); }
 }
+
 function maybeAutoFind() {
   if (!state.connected) return;
-  if (state.mode === 'wired') {
-    // 有线固件尚未确认按本协议应答，先不自动寻卡，避免刷一屏红色报错
-    log('USB 直连已就绪：若固件支持本协议，可手动点「寻卡读卡」；有线模式暂不自动寻卡', 'info');
-    return;
-  }
   if (!(state.settings && state.settings.auto_find)) return;
   doFind(true);
 }
 
 async function doDisconnect() {
-  try {
-    await api('disconnect');
-  } catch (e) { /* 忽略 */ }
+  try { await api('disconnect'); } catch (e) { /* ignore */ }
   state.connected = false;
   state.mode = '';
   state.address = '';
-  state.wired.connected = false;
   setLed('');
   setText('#kvState', '未连接');
   setText('#kvMode', '—');
   setText('#kvMac', '—');
   setText('#kvVer', '—');
   setText('#kvSn', '—');
-  setBadge('#connBadge', '未连接');
-  setBadge('#wiredBadge', '未连接', '');
+  setBadge('#connBadge', '未连接', '');
   const pill = $('#connPill');
   if (pill) {
     pill.classList.remove('on');
     const s = pill.querySelector('span');
     if (s) s.textContent = '未连接';
   }
-  $("#d3Sn") && ($('#d3Sn').textContent = 'SN —');
   toast('已断开连接', 'ok');
 }
 
@@ -1072,24 +707,15 @@ async function doRefreshInfo() {
     const info = await api('device_info');
     setText('#kvVer', info.version || '—');
     setText('#kvSn', info.sn || '—');
-    const sn = $('#d3Sn');
-    if (sn && info.sn) sn.textContent = 'SN ' + info.sn;
     refreshBattery();
     toast('设备信息已刷新', 'ok');
   } catch (e) { toast(e.message, 'err'); }
 }
 
-function switchConnTab(mode) {
-  const isUsb = mode === 'usb' || mode === 'wired' || mode === 'serial';
-  $('#tabBle') && $('#tabBle').classList.toggle('is-active', !isUsb);
-  $('#tabUsb') && $('#tabUsb').classList.toggle('is-active', isUsb);
-  $('#paneBle') && $('#paneBle').classList.toggle('is-hidden', isUsb);
-  $('#paneUsb') && $('#paneUsb').classList.toggle('is-hidden', !isUsb);
-  state.mode_tab = isUsb ? 'usb' : 'ble';
-  if (isUsb && state.wired.connected) refreshWiredLog();
+function switchConnTab() {
+  /* Bluetooth BLE is the only official transport; kept for old event wiring. */
 }
 
-/* ---------------------------------------------------------- 寻卡 / 识卡 */
 function chipBusy(on) {
   const c = $('#chipCard');
   if (!c) return;
@@ -1212,22 +838,29 @@ async function startCrackPolling(handle, cardInfo) {
       const res = st.result || {};
       if (stateName === 'done' && res && res.ok) {
         const keys = res.keys || [];
+        state.crack.sectorKeys = res.sector_keys || null;
         if (!state.crack.chain.some(c => c.state === 'ok')) {
           const row = state.crack.chain.find(c => c.id === res.method);
           if (row) { row.state = 'ok'; row.cost = res.elapsed || 0; row.label = res.label || res.method; }
         }
         renderChainMini();
         renderMethods();
-        showCrackKeys(keys, res.sector != null ? res.sector : state.crack.sector);
+        const s = res.sector != null ? res.sector : state.crack.sector;
+        const allHit = res.sectors_hit != null && res.sectors_total != null;
+        showCrackKeys(keys, s);
         setBadge('#autoCrackBadge', '破解成功', 'ok');
         setBadge('#crackStateBadge', '成功', 'ok');
         setBar('#crackBar', 100, 'done');
         setText('#crackPct', '100%');
-        setText('#crackMeta', `${res.label || res.method} · ${res.elapsed}s`);
+        setText('#crackMeta', allHit
+          ? `全卡 ${res.sectors_hit}/${res.sectors_total} 扇区 · ${res.elapsed}s`
+          : `${res.label || res.method} · ${res.elapsed}s`);
         setBar('#crackBigBar', 100, 'done');
         setText('#crackBigPct', '100%');
-        setText('#crackBigMeta', `扇区 ${res.sector} 破解成功（${res.label || res.method}）`);
-        toast('破解成功，密钥已获得', 'ok');
+        setText('#crackBigMeta', allHit
+          ? `全卡破解成功：${res.sectors_hit}/${res.sectors_total} 个扇区命中（${(keys || []).length} 把密钥）`
+          : `扇区 ${res.sector} 破解成功（${res.label || res.method}）`);
+        toast(allHit ? `全卡破解成功：${res.sectors_hit}/${res.sectors_total} 扇区` : '破解成功，密钥已获得', 'ok');
         log(`破解成功：${(keys || []).join(', ')}`, 'ok');
       } else {
         const msg = st.error || (res && res.summary) || '未获得密钥';
@@ -1256,7 +889,8 @@ async function doCrackAgain() {
   const timeout = +(state.settings.crack_timeout || 25);
   const mode = state.crack_mode === 'local' ? 'local' : 'cloud';
   const ok = await confirmBox('重新级联破解',
-    `扇区：${sector}\n模式：${mode === 'local' ? '本地离线（mfkey32）' : '云端解算（失败自动降级本地）'}\n` +
+    `范围：${sector === -1 ? '全卡（全部 16 个扇区）' : '扇区 ' + sector}\n` +
+    `模式：${mode === 'local' ? '本地离线（mfkey32）' : '云端解算（失败自动降级本地）'}\n` +
     `超时：${timeout} 秒（每种方式）\n` +
     '请保持卡片贴在读卡器上。\n\n确定开始吗？');
   if (!ok) return;
@@ -1281,7 +915,8 @@ async function doManualCrack() {
   const timeout = +$('#crackTimeout').value || 25;
   const mode = state.crack_mode === 'local' ? 'local' : 'cloud';
   const ok = await confirmBox('手动破解',
-    `扇区：${sector}\n密钥类型：${keyType ? 'KEY B' : 'KEY A'}\n` +
+    `范围：${sector === -1 ? '全卡（全部 16 个扇区）' : '扇区 ' + sector}\n` +
+    `密钥类型：${keyType ? 'KEY B' : 'KEY A'}\n` +
     `模式：${mode === 'local' ? '本地离线（mfkey32）' : '云端解算（失败自动降级本地）'}\n` +
     `超时：${timeout} 秒（每种方式）\n\n` +
     '将按顺序尝试全部破解方式，前一种失败自动切换下一种。\n' +
@@ -1613,6 +1248,79 @@ async function doImportCard() {
 }
 
 /* ---------------------------------------------------------- 外观设置 */
+const PRESET_ACCENTS = {
+  sonoma: [74, 92, 214, 214, 116, 90],
+  monterey: [26, 96, 168, 60, 168, 186],
+  graphite: [120, 122, 130, 168, 172, 182],
+  aurora: [88, 116, 226, 104, 189, 238],
+  sunset: [202, 91, 78, 157, 92, 190],
+  ocean: [38, 133, 190, 39, 184, 181],
+  forest: [73, 151, 105, 137, 166, 79],
+  mono: [112, 116, 124, 154, 160, 170],
+};
+
+let __wallAccentToken = 0;
+
+function setWallAccent(a, b) {
+  a = a || [104, 126, 168];
+  b = b || [188, 202, 224];
+  const css = document.documentElement.style;
+  css.setProperty('--wall-accent-rgb', a.join(', '));
+  css.setProperty('--wall-accent-2-rgb', b.join(', '));
+  // v2.5.0：寻卡卡片改为完全不透明实色卡面。为了让实色卡面仍有立体层次，
+  // 由主色派生「亮档 / 深档」两个纯实色（无 alpha），CSS 里只用 rgb() 实色渐变，
+  // 不再叠加半透明白色高光，避免再次出现"磨砂玻璃"观感。
+  const lite = b.map(v => Math.min(255, Math.round(v + (255 - v) * .55)));
+  const deep = a.map(v => Math.max(0, Math.round(v * .52)));
+  css.setProperty('--wall-accent-lite-rgb', lite.join(', '));
+  css.setProperty('--wall-accent-deep-rgb', deep.join(', '));
+}
+
+function extractWallpaperAccent(url) {
+  const token = ++__wallAccentToken;
+  const img = new Image();
+  img.onload = () => {
+    if (token !== __wallAccentToken) return;
+    try {
+      const c = document.createElement('canvas');
+      c.width = 48; c.height = 48;
+      const ctx = c.getContext('2d', { willReadFrequently: true });
+      ctx.drawImage(img, 0, 0, 48, 48);
+      const data = ctx.getImageData(0, 0, 48, 48).data;
+      const bins = {};
+      for (let i = 0; i < data.length; i += 4) {
+        const r = data[i], g = data[i + 1], b = data[i + 2], a = data[i + 3];
+        if (a < 180) continue;
+        const max = Math.max(r, g, b), min = Math.min(r, g, b);
+        const light = (max + min) / 510;
+        const sat = max === min ? 0 : (max - min) / (255 - Math.abs(max + min - 255));
+        if (light < .08 || light > .94 || sat < .10) continue;
+        const key = `${r >> 5},${g >> 5},${b >> 5}`;
+        if (!bins[key]) bins[key] = { r: 0, g: 0, b: 0, n: 0, score: 0 };
+        const score = sat * (1 - Math.abs(light - .52));
+        bins[key].r += r; bins[key].g += g; bins[key].b += b;
+        bins[key].n += 1; bins[key].score += score;
+      }
+      const ranked = Object.values(bins).sort((x, y) => y.score - x.score);
+      if (!ranked.length) return;
+      const take = ranked.slice(0, Math.max(1, Math.min(5, ranked.length)));
+      const avg = take.reduce((o, c) => ({ r: o.r + c.r / c.n, g: o.g + c.g / c.n, b: o.b + c.b / c.n }),
+        { r: 0, g: 0, b: 0 });
+      const count = take.length;
+      const a = [Math.round(avg.r / count), Math.round(avg.g / count), Math.round(avg.b / count)];
+      // 壁纸主色若偏暗（夜景 / 深色动漫壁纸很常见），直接拿来当卡片底色会与背景糊成一片。
+      // 这里只提亮度、不动色相：卡片依然"跟随壁纸主色"，但足够可辨。
+      const lum = (0.2126 * a[0] + 0.7152 * a[1] + 0.0722 * a[2]) / 255;
+      const k = lum < 0.34 ? Math.min(2.4, 0.34 / Math.max(lum, 0.07)) : 1;
+      const base = k === 1 ? a : a.map(v => Math.min(255, Math.round(v * k + 6)));
+      const lighten = base.map(v => Math.min(255, Math.round(v * .55 + 255 * .45)));
+      setWallAccent(base, lighten);
+    } catch (e) { /* keep preset accent */ }
+  };
+  img.onerror = () => { /* keep preset accent */ };
+  img.src = url;
+}
+
 function applyAppearance(s) {
   s = s || {};
   const glass = s.glass == null ? 26 : s.glass;
@@ -1625,11 +1333,16 @@ function applyAppearance(s) {
 
   const bg = $('#bg');
   if (!bg) return;
+  const presetId = s.preset || 'mono';
+  const pa = PRESET_ACCENTS[presetId] || PRESET_ACCENTS.mono;
+  setWallAccent([pa[0], pa[1], pa[2]], [pa[3], pa[4], pa[5]]);
   if (s.wallpaper) {
-    bg.style.backgroundImage = `url("wallpapers/${encodeURIComponent(s.wallpaper)}")`;
+    const url = `wallpapers/${encodeURIComponent(s.wallpaper)}`;
+    bg.style.backgroundImage = `url("${url}")`;
     bg.classList.add('has-image');
+    extractWallpaperAccent(url);
   } else {
-    const preset = PRESETS.find(p => p.id === (s.preset || 'aurora')) || PRESETS[0];
+    const preset = PRESETS.find(p => p.id === presetId) || PRESETS[0];
     bg.style.backgroundImage = preset.css;
     bg.classList.remove('has-image');
   }
@@ -2155,14 +1868,14 @@ function bindUI() {
   if ($('#btnSpinToggle')) {
     $('#btnSpinToggle').onclick = () => {
       state.spin.on = !state.spin.on;
-      $('#btnSpinToggle').textContent = state.spin.on ? '暂停旋转' : '继续旋转';
+      $('#btnSpinToggle').textContent = state.spin.on ? '暂停自转' : '继续自转';
     };
   }
   if ($('#btnSpinReset')) {
     $('#btnSpinReset').onclick = () => {
       state.spin.deg = 0;
-      $('#deviceModel') && ($('#deviceModel').style.transform = 'rotateX(-7deg) rotateY(0deg)');
-      toast('已复位', 'ok');
+      $('#deviceModel') && $('#deviceModel').style.setProperty('--spin', '0deg');
+      toast('视角已复位', 'ok');
     };
   }
   if ($('#rngSpin')) {
@@ -2170,37 +1883,20 @@ function bindUI() {
     setText('#lblSpin', state.spin.speed);
     $('#rngSpin').oninput = e => {
       state.spin.speed = +e.target.value;
+      state.spin.on = state.spin.speed > 0;
       setText('#lblSpin', state.spin.speed);
+      const btn = $('#btnSpinToggle');
+      if (btn) btn.textContent = state.spin.on ? '暂停自转' : '继续自转';
     };
     $('#rngSpin').onchange = async e => {
       try { state.settings = await api('save_settings', { device_spin: +e.target.value }); }
-      catch (err) { /* 忽略 */ }
+      catch (err) { /* ignore */ }
     };
   }
 
-  /* 连接方式切换 */
-  if ($('#tabBle')) $('#tabBle').onclick = () => switchConnTab('ble');
-  if ($('#tabUsb')) $('#tabUsb').onclick = () => switchConnTab('usb');
-
-  /* 蓝牙 */
   if ($('#btnScan')) $('#btnScan').onclick = doScan;
   if ($('#btnQuickConnect')) $('#btnQuickConnect').onclick = doQuickConnect;
 
-  /* USB */
-  if ($('#btnScanPorts')) $('#btnScanPorts').onclick = doScanPorts;
-  if ($('#btnProbePort')) $('#btnProbePort').onclick = () => doProbePort('');
-
-  /* USB 直连（厂商通道） */
-  if ($('#btnScanWired')) $('#btnScanWired').onclick = doScanWired;
-  if ($('#btnProbeWired')) $('#btnProbeWired').onclick = () => doProbeWired(null);
-  if ($('#btnWiredDisconnect')) $('#btnWiredDisconnect').onclick = doWiredDisconnect;
-  if ($('#btnSendWired')) $('#btnSendWired').onclick = doSendWiredFrame;
-  if ($('#btnClearWiredLog')) $('#btnClearWiredLog').onclick = clearWiredLog;
-  if ($('#wiredFrame')) {
-    $('#wiredFrame').onkeydown = e => { if (e.key === 'Enter') doSendWiredFrame(); };
-  }
-
-  /* 设备信息 */
   if ($('#btnRefreshInfo')) $('#btnRefreshInfo').onclick = doRefreshInfo;
   if ($('#btnDisconnect')) $('#btnDisconnect').onclick = doDisconnect;
 
@@ -2659,7 +2355,7 @@ async function doVerifyLocal() {
 
 /* ---------------------------------------------------------- 启动加载 */
 function fillSectorSelects() {
-  const opts = [];
+  const opts = ['<option value="-1">全卡（全部 16 个扇区）</option>'];
   for (let i = 0; i < 16; i++) opts.push(`<option value="${i}">扇区 ${i}</option>`);
   if ($('#crackSector')) $('#crackSector').innerHTML = opts.join('');
   if ($('#setCrackSector')) $('#setCrackSector').innerHTML = opts.join('');
@@ -2673,7 +2369,7 @@ async function loadBackend() {
     const info = await api('app_info');
     state.methods = info.crack_methods || [];
     state.chain = info.crack_chain || [];
-    setText('#aboutVer', info.version || '2.2.0');
+    setText('#aboutVer', info.version || '2.3.0');
     renderMethods();
     if (info.last_card && info.last_card.uid) {
       const lc = info.last_card;
@@ -2687,7 +2383,6 @@ async function loadBackend() {
       setText('#chipUid', uid ? uid.join(' ') : '—— —— —— ——');
       log(`载入上次卡片记录：${lc.class_label || ''} UID ${lc.uid}（${lc.ts || ''}）`, 'info');
     }
-    if (info.baud_choices) fillBaud(info.baud_choices, info.baud_choices.includes(115200) ? 115200 : info.baud_choices[0]);
     renderWriteModes(info.write_modes);
     renderPhoneModes(info.phone_nfc);
   });
@@ -2725,13 +2420,8 @@ async function loadBackend() {
     setChk('#setWriteTips', S.write_card_tips);
     setChk('#setPowerDisplay', S.power_display);
     setChk('#setSak88', S.sak88);
-    if ($('#baudSel') && state.settings.baud) $('#baudSel').value = String(state.settings.baud);
-    state.spin.speed = state.settings.device_spin == null ? 18 : state.settings.device_spin;
+    state.spin.speed = Math.max(0, Math.min(24, state.settings.device_spin == null ? 6 : state.settings.device_spin));
     state.spin.on = state.spin.speed > 0;
-    if ($('#rngSpin')) $('#rngSpin').value = state.spin.speed;
-    setText('#lblSpin', state.spin.speed);
-    if ($('#btnSpinToggle')) $('#btnSpinToggle').textContent = state.spin.on ? '暂停旋转' : '继续旋转';
-    switchConnTab(state.settings.connection_mode === 'usb' ? 'usb' : 'ble');
   });
 
   step('读取破解引擎状态', async () => { await refreshCrackEngine(); });
@@ -2782,8 +2472,7 @@ async function init() {
   state.ready = true;
   log('界面已就绪，正在连接后端…', 'ok');
   await loadBackend();
-  log('NFC Mini Studio 2.2.0 已就绪', 'ok');
-  log('提示：蓝牙连接前请先让读卡器与手机微信断开；USB 模式（串口/直连）请先插好读卡器', 'info');
+  log('NFC Mini Studio 2.3.0 已就绪', 'ok');
 }
 
 let __booted = false;
@@ -2841,10 +2530,6 @@ window.__diag = function () {
     mode: state.mode,
     apiKeys: apiKeys.length,
     apiMissingCore: CORE_API.filter(k => typeof api[k] !== 'function').join(','),
-    wiredApiMissing: WIRED_API.filter(k => typeof api[k] !== 'function').join(','),
-    wiredDevices: (state.wired.devices || []).length,
-    wiredConnected: !!state.wired.connected,
-    wiredRows: $$('#wiredList li').length,
     unbound: unbound.join(','),
     unboundCount: unbound.length,
     navCount: $$('.nav-item').length,
@@ -2852,6 +2537,7 @@ window.__diag = function () {
     alpha: getComputedStyle(document.documentElement).getPropertyValue('--alpha').trim(),
     blur: getComputedStyle(document.documentElement).getPropertyValue('--blur').trim(),
     preset: (state.settings && state.settings.preset) || '',
+    wallAccent: getComputedStyle(document.documentElement).getPropertyValue('--wall-accent-rgb').trim(),
     glassBackdrop: glassEl ? (getComputedStyle(glassEl).backdropFilter || getComputedStyle(glassEl).webkitBackdropFilter || '') : '',
     bgImage: !!(bg && bg.classList.contains('has-image')),
     activeView: ($('.view.is-active') || {}).id || '',
@@ -2859,8 +2545,6 @@ window.__diag = function () {
     sectorCount: $$('#sectors .sector').length,
     methodCount: $$('#methodList .method').length,
     chainRows: $$('#chainMini .chain-row').length,
-    usbPaneHidden: !!(document.getElementById('paneUsb') || {}).classList &&
-                   document.getElementById('paneUsb').classList.contains('is-hidden'),
     logs: $$('#logBody > *').slice(-8).map(e => e.textContent.trim()),
     errLogs: $$('#logBody > *').filter(e => /l-err/.test(e.className)).map(e => e.textContent.trim()),
     toasts: $$('#toasts > *').map(e => e.textContent.trim()),

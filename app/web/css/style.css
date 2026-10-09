@@ -1,5 +1,5 @@
 /* ==========================================================================
-   NFC Mini Studio 2.2.0 · Liquid Glass 主题（macOS 桌面系统观感）
+   NFC Mini Studio 2.3.0 · Liquid Glass 主题（macOS 桌面系统观感）
    设计要点：多层毛玻璃 + 高光边缘 + 折射扫光 + 大圆角 + 柔和层级阴影
    ========================================================================== */
 
@@ -80,7 +80,7 @@ b, strong { font-weight: 600; }
 /* -------------------------------------------------------------- background */
 .bg {
   position: fixed; inset: 0; z-index: 0; overflow: hidden;
-  background: linear-gradient(155deg, #05060c 0%, #0a0f22 42%, #060810 100%);
+  background: linear-gradient(155deg, #0b0b0d 0%, #141416 42%, #0c0c0e 100%);
   background-size: cover;
   background-position: center;
   transition: background-image .6s var(--ease-soft), filter .5s var(--ease-soft);
@@ -97,20 +97,20 @@ b, strong { font-weight: 600; }
   will-change: transform;
 }
 .bg-blob.b1 { width: 620px; height: 620px; left: -160px; top: -180px;
-  background: radial-gradient(circle at 30% 30%, #2f6dff, rgba(47, 109, 255, 0) 70%);
+  background: radial-gradient(circle at 30% 30%, #4a4a52, rgba(74, 74, 82, 0) 70%);
   animation: drift1 26s var(--ease-soft) infinite alternate; }
 .bg-blob.b2 { width: 540px; height: 540px; right: -140px; top: -120px;
-  background: radial-gradient(circle at 50% 50%, #5a7bff, rgba(90, 123, 255, 0) 70%);
+  background: radial-gradient(circle at 50% 50%, #55555c, rgba(85, 85, 92, 0) 70%);
   opacity: .46;
   animation: drift2 32s var(--ease-soft) infinite alternate; }
 .bg-blob.b3 { width: 700px; height: 700px; left: 22%; bottom: -320px;
-  background: radial-gradient(circle at 50% 50%, #0fb9d8, rgba(15, 185, 216, 0) 70%);
+  background: radial-gradient(circle at 50% 50%, #3c4a4e, rgba(60, 74, 78, 0) 70%);
   animation: drift3 30s var(--ease-soft) infinite alternate; }
 .bg-blob.b4 { width: 420px; height: 420px; right: 12%; bottom: -160px;
   background: radial-gradient(circle at 50% 50%, #ff4d8d, rgba(255, 77, 141, 0) 70%);
   opacity: .40; animation: drift1 34s var(--ease-soft) infinite alternate-reverse; }
 .bg-blob.b5 { width: 380px; height: 380px; left: 44%; top: 18%;
-  background: radial-gradient(circle at 50% 50%, #35e0a1, rgba(53, 224, 161, 0) 70%);
+  background: radial-gradient(circle at 50% 50%, #46524a, rgba(70, 82, 74, 0) 70%);
   opacity: .32; animation: drift2 24s var(--ease-soft) infinite alternate-reverse; }
 
 @keyframes drift1 { from { transform: translate3d(0, 0, 0) scale(1); }
@@ -198,7 +198,7 @@ b, strong { font-weight: 600; }
 .brand .logo {
   width: 38px; height: 38px; border-radius: 12px; flex: none;
   display: grid; place-items: center;
-  background: linear-gradient(160deg, #63b3ff, #0a5fd8 60%, #7a3ff0);
+  background: linear-gradient(160deg, #8e8e94, #5a5a60 60%, #6e6e74);
   box-shadow: inset 0 1px 0 rgba(255, 255, 255, .55), 0 8px 20px rgba(10, 110, 255, .38);
 }
 .brand .logo span { font-size: 19px; font-weight: 700; color: #fff; text-shadow: 0 1px 2px rgba(0, 0, 0, .3); }
@@ -397,7 +397,7 @@ b, strong { font-weight: 600; }
 select.input { appearance: none; padding-right: 30px; cursor: pointer;
   background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='12' height='12' viewBox='0 0 12 12'%3E%3Cpath d='M2.5 4.5L6 8l3.5-3.5' fill='none' stroke='rgba(255,255,255,.6)' stroke-width='1.4' stroke-linecap='round'/%3E%3C/svg%3E");
   background-repeat: no-repeat; background-position: right 10px center; }
-select.input option { background: #131722; color: #f6f7fb; }
+select.input option { background: #17171a; color: #f6f7fb; }
 
 .check { display: flex; align-items: center; gap: 9px; font-size: 12.5px; color: var(--ink-2); cursor: pointer; }
 .check input { appearance: none; width: 38px; height: 22px; border-radius: 999px; position: relative; cursor: pointer;
@@ -421,7 +421,7 @@ input[type=range]::-webkit-slider-runnable-track {
 }
 input[type=range]::-webkit-slider-thumb {
   appearance: none; width: 17px; height: 17px; margin-top: -6px; border-radius: 50%;
-  background: radial-gradient(circle at 35% 30%, #fff, #dfe6f2);
+  background: radial-gradient(circle at 35% 30%, #fff, #e6e6e8);
   border: 1px solid rgba(255, 255, 255, .7);
   box-shadow: 0 2px 8px rgba(0, 0, 0, .45), 0 0 0 0 rgba(10, 132, 255, .35);
   transition: transform .3s var(--spring), box-shadow .3s;
@@ -482,7 +482,8 @@ input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.12); box-shad
   background: rgba(255, 255, 255, .045);
   border: 1px solid rgba(255, 255, 255, .09);
 }
-.sector-tools .field { margin: 0; }
+.sector-tools .field { margin: 0; flex: 1 1 220px; min-width: 220px; }
+.sector-tools .field.grow { flex: 1 1 260px; min-width: 260px; }
 .sector-actions { display: flex; align-items: center; gap: 8px; margin-left: auto; }
 @media (max-width: 900px) { .sector-actions { margin-left: 0; } }
 
@@ -730,40 +731,37 @@ input[type=range]:hover::-webkit-slider-thumb { transform: scale(1.12); box-shad
 #view-card .card-head { padding-bottom: 10px; border-bottom: 1px solid rgba(255, 255, 255, .07); margin-bottom: 12px; }
 #view-card .card-find .card-head { border-bottom: 0; padding-bottom: 0; margin-bottom: 0; }
 
-.find-visual { display: grid; place-items: center; }
+.find-visual { display: grid; place-items: center; padding: 2px 0; }
+
+/* v2.4.0 寻卡结果卡片：竖长方形（≈1:1.6）、完全不透明、壁纸主色、无芯片图案 */
 .chip-card {
-  position: relative; width: 176px; height: 176px; border-radius: 26px;
-  display: grid; place-items: center;
-  background: linear-gradient(150deg, rgba(255, 255, 255, .16), rgba(255, 255, 255, .04));
-  border: 1px solid rgba(255, 255, 255, .18);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .35), var(--sd-1);
+  position: relative;
+  width: 200px;
+  height: 320px;
+  aspect-ratio: 5 / 8;
+  border-radius: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.22) 0%, rgba(255,255,255,.06) 38%, rgba(0,0,0,.16) 100%),
+    linear-gradient(162deg, rgb(var(--wall-accent-2-rgb)) 0%, rgb(var(--wall-accent-rgb)) 62%, rgb(var(--wall-accent-rgb)) 100%);
+  border: 1px solid rgba(255,255,255,.28);
+  box-shadow: 0 18px 42px rgba(0,0,0,.34), inset 0 1px 0 rgba(255,255,255,.42);
   overflow: hidden;
   transition: border-color .5s var(--ease), box-shadow .5s var(--ease);
 }
 .chip-card.is-found { border-color: rgba(48, 209, 88, .55); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), 0 0 40px rgba(48, 209, 88, .28), var(--sd-1); }
 .chip-card.is-busy { border-color: rgba(10, 132, 255, .55); box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4), 0 0 40px rgba(10, 132, 255, .3), var(--sd-1); }
-.chip {
-  width: 58px; height: 58px; border-radius: 12px;
-  background:
-    linear-gradient(135deg, rgba(255, 255, 255, .5), rgba(255, 255, 255, .06)),
-    repeating-linear-gradient(90deg, rgba(255, 214, 10, .55) 0 3px, rgba(214, 170, 0, .5) 3px 8px);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .6), 0 6px 16px rgba(0, 0, 0, .35);
-}
-.wave {
-  position: absolute; width: 76px; height: 76px; border-radius: 50%;
-  border: 1px solid rgba(120, 200, 255, .55);
-  animation: waveOut 2.6s var(--ease-soft) infinite;
-}
-@keyframes waveOut {
-  0% { transform: scale(.6); opacity: .85; }
-  100% { transform: scale(2.1); opacity: 0; }
-}
+/* v2.4.0 已移除：金色芯片方块 .chip / 蓝色扩散波纹 .wave / waveOut 动画 */
 .chip-uid {
-  position: absolute; bottom: 34px; font-family: var(--mono); font-size: 11.5px;
+  font-family: var(--mono); font-size: 11.5px; text-align: center;
   letter-spacing: 1.2px; color: var(--ink-2);
 }
 .chip-class {
-  position: absolute; bottom: 14px; font-size: 11.5px; font-weight: 600;
+  font-size: 11.5px; font-weight: 600; max-width: 152px; text-align: center;
   padding: 3px 11px; border-radius: 999px;
   color: var(--ink-2); background: rgba(255, 255, 255, .08);
   border: 1px solid rgba(255, 255, 255, .12);
@@ -981,7 +979,7 @@ body.light .log-body { color: #26303f; }
 body.light .toast { background: rgba(255, 255, 255, .86); color: #14161c; }
 
 /* ==========================================================================
-   设备列表（蓝牙 / 串口 / 有线 共用）
+   设备列表（蓝牙）
    ========================================================================== */
 .dev-list { list-style: none; display: flex; flex-direction: column; gap: 8px; margin-top: 4px; }
 .dev-list li {
@@ -1038,26 +1036,7 @@ body.light .toast { background: rgba(255, 255, 255, .86); color: #14161c; }
   to   { transform: translateX(320%); }
 }
 
-/* ==========================================================================
-   USB 直连（厂商通道）面板
-   ========================================================================== */
-.wired-block {
-  margin-top: 12px; padding-top: 12px;
-  border-top: 1px solid rgba(255, 255, 255, .10);
-  display: flex; flex-direction: column; gap: 10px;
-}
 .field.grow { flex: 1; min-width: 210px; }
-.raw-log {
-  max-height: 168px; overflow: auto; padding: 10px 12px; border-radius: 14px;
-  font-size: 11px; line-height: 1.75; color: var(--ink-2); user-select: text;
-  background: rgba(6, 9, 16, .42);
-  border: 1px solid rgba(255, 255, 255, .10);
-  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .10);
-}
-.raw-log .rl { display: flex; gap: 8px; white-space: pre-wrap; word-break: break-all; }
-.raw-log .rl-tx { color: #b8dcff; }
-.raw-log .rl-rx { color: #a9edbc; }
-.raw-log .empty { color: var(--ink-3); }
 
 /* ==========================================================================
    可访问性 / 动效降级
@@ -1106,3 +1085,679 @@ details.faq summary::-webkit-details-marker { display: none; }
 details.faq summary::before { content: "▸ "; color: var(--accent); }
 details.faq[open] summary::before { content: "▾ "; }
 details.faq p { margin: 8px 0 2px 16px; font-size: 12.5px; line-height: 1.7; color: var(--ink-2); }
+
+/* ------------------------------------------------------------------ 设备照片摆正
+   实拍图是 3/4 视角（右侧带厚度产生的透视），这里用反向透视把正面"拉正"，
+   同时抠图后的透明背景让它在深色界面上干净贴合。 */
+/* 设备照片的 3D 摆正已回退：透视变换会破坏切片厚度，改用校正后的正面图本身 */
+
+
+/* ======================================================================
+   v2.3 visual reset: flat device, BLE-only connection, wallpaper accent
+   ====================================================================== */
+:root {
+  --wall-accent-rgb: 104, 126, 168;      /* 壁纸主色 */
+  --wall-accent-2-rgb: 188, 202, 224;    /* 主色提亮档 */
+  --wall-accent-lite-rgb: 232, 240, 255; /* v2.5.0：更亮档（实色卡面高光边） */
+  --wall-accent-deep-rgb: 54, 66, 87;    /* v2.5.0：压暗档（实色卡面暗部） */
+}
+
+.grid-device {
+  grid-template-columns: minmax(300px, 356px) minmax(0, 1fr);
+  align-items: stretch;
+}
+
+.stage.device-stage {
+  height: 426px;
+  perspective: none;
+  cursor: default;
+  overflow: hidden;
+}
+
+.stage.device-stage:active { cursor: default; }
+
+.device-glow {
+  position: absolute;
+  width: 310px;
+  height: 310px;
+  border-radius: 50%;
+  background: radial-gradient(circle,
+    rgba(var(--wall-accent-rgb), .28) 0%,
+    rgba(var(--wall-accent-2-rgb), .10) 42%,
+    transparent 72%);
+  filter: blur(24px);
+}
+
+.device-model {
+  position: relative;
+  z-index: 2;
+  width: 206px;
+  height: 348px;
+  border-radius: 34px;
+  transform: none;
+  animation: none;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.98), rgba(236,241,247,.96) 48%, rgba(212,221,232,.96)),
+    #eef2f7;
+  border: 1px solid rgba(255,255,255,.88);
+  box-shadow:
+    inset 0 0 0 1px rgba(125, 143, 166, .20),
+    inset 0 1px 0 rgba(255,255,255,.98),
+    0 28px 58px rgba(0,0,0,.42),
+    0 6px 18px rgba(0,0,0,.26);
+}
+
+.device-model::after {
+  content: '';
+  position: absolute;
+  inset: 7px;
+  border-radius: 28px;
+  border: 1px solid rgba(130,148,170,.22);
+  pointer-events: none;
+}
+
+.device-led,
+.device-model .d3-led {
+  position: absolute;
+  right: 28px;
+  top: 27px;
+  width: 17px;
+  height: 8px;
+  border-radius: 999px;
+  background: #65727d;
+  box-shadow: inset 0 1px 2px rgba(0,0,0,.28);
+  transition: background .35s, box-shadow .35s;
+}
+
+.device-led.on,
+.device-model .d3-led.on {
+  background: #78f49b;
+  box-shadow: 0 0 10px rgba(74, 232, 126, .92), 0 0 22px rgba(74, 232, 126, .44);
+}
+
+.device-led.busy,
+.device-model .d3-led.busy {
+  background: #ffd15c;
+  box-shadow: 0 0 10px rgba(255, 202, 66, .92), 0 0 22px rgba(255, 202, 66, .42);
+}
+
+.device-led.err,
+.device-model .d3-led.err {
+  background: #ff746a;
+  box-shadow: 0 0 10px rgba(255, 74, 64, .92), 0 0 22px rgba(255, 74, 64, .42);
+}
+
+.device-brand {
+  position: absolute;
+  top: 88px;
+  left: 0;
+  right: 0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 7px;
+  color: #9aa7b5;
+  font-size: 17px;
+  letter-spacing: .1px;
+  text-shadow: 0 1px 0 rgba(255,255,255,.9), 0 -1px 0 rgba(112,128,146,.16);
+}
+
+.bt-mark {
+  font-size: 24px;
+  line-height: 1;
+  color: #94a1af;
+  transform: translateY(-1px);
+}
+
+.device-pad {
+  position: absolute;
+  left: 24px;
+  right: 24px;
+  top: 172px;
+  height: 138px;
+  border-radius: 22px;
+  background: linear-gradient(145deg, #dbe2eb, #f6f8fb 52%, #cfd8e4);
+  border: 1px solid rgba(122, 139, 160, .25);
+  box-shadow:
+    inset 0 2px 5px rgba(116,133,154,.23),
+    0 1px 0 rgba(255,255,255,.9);
+  display: grid;
+  place-items: center;
+}
+
+.nfc-waves {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  color: #9ba8b6;
+  font-size: 18px;
+  font-weight: 500;
+  letter-spacing: .4px;
+}
+
+.nfc-waves i {
+  display: block;
+  width: 16px;
+  height: 44px;
+  border: 2px solid currentColor;
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  border-left-color: transparent;
+  border-radius: 50%;
+  opacity: .75;
+}
+
+.nfc-waves i:nth-of-type(4),
+.nfc-waves i:nth-of-type(5),
+.nfc-waves i:nth-of-type(6) { transform: rotate(180deg); }
+
+.device-shadow {
+  position: absolute;
+  bottom: 30px;
+  width: 190px;
+  height: 28px;
+  border-radius: 50%;
+  background: radial-gradient(ellipse, rgba(0,0,0,.52), transparent 72%);
+  filter: blur(10px);
+}
+
+.device-caption {
+  text-align: center;
+  color: var(--ink-2);
+  font-size: 12px;
+  letter-spacing: .25px;
+}
+
+.conn-card { justify-content: flex-start; }
+.conn-mode {
+  display: grid;
+  grid-template-columns: 48px minmax(0, 1fr) auto;
+  gap: 13px;
+  align-items: center;
+  padding: 15px;
+  border-radius: 18px;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.13), rgba(255,255,255,.045)),
+    rgba(var(--wall-accent-rgb), .08);
+  border: 1px solid rgba(255,255,255,.16);
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.24);
+}
+
+.conn-mode-ico {
+  width: 48px;
+  height: 48px;
+  border-radius: 15px;
+  display: grid;
+  place-items: center;
+  font-size: 25px;
+  color: #fff;
+  background: linear-gradient(150deg,
+    rgba(var(--wall-accent-2-rgb), .92),
+    rgba(var(--wall-accent-rgb), .82));
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.46), 0 8px 20px rgba(0,0,0,.24);
+}
+
+.conn-mode b { display: block; margin-bottom: 4px; font-size: 14px; }
+.conn-mode p { color: var(--ink-3); font-size: 11.5px; line-height: 1.55; }
+
+
+/* v2.5.0 已移除：卡面上的半透明白色高光 + 斜向扫光叠层（rgba 覆盖层正是
+   「半透明磨砂玻璃」观感的来源）。卡面改为完全不透明实色，见文件末尾权威定义。 */
+
+.card-corner {
+  position: absolute;
+  left: 0;
+  right: 0;
+  top: 22px;
+  z-index: 2;
+  text-align: center;
+  color: rgba(255,255,255,.86);
+  font-size: 10px;
+  letter-spacing: 2px;
+}
+
+.card-waves {
+  position: absolute;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%);
+  width: 58px;
+  height: 42px;
+  z-index: 2;
+}
+
+.card-waves i {
+  position: absolute;
+  left: 0;
+  width: 26px;
+  height: 38px;
+  border: 2px solid rgba(255,255,255,.78);
+  border-top-color: transparent;
+  border-bottom-color: transparent;
+  border-left-color: transparent;
+  border-radius: 50%;
+}
+
+.card-waves i:nth-child(1) { left: 0; transform: scale(.72); }
+.card-waves i:nth-child(2) { left: 9px; transform: scale(.86); }
+.card-waves i:nth-child(3) { left: 18px; }
+
+#chipCard .chip-uid {
+  position: static;
+  z-index: 2;
+  color: #fff;
+  font-size: 17px;
+  letter-spacing: 2.4px;
+  text-align: center;
+  text-shadow: 0 2px 10px rgba(0,0,0,.38);
+}
+
+#chipCard .chip-class {
+  position: static;
+  z-index: 2;
+  max-width: 168px;
+  text-align: center;
+  color: rgba(255,255,255,.94);
+  background: rgba(0,0,0,.20);
+  border-color: rgba(255,255,255,.24);
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+}
+
+#chipCard.is-found {
+  border-color: rgba(255,255,255,.48);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.48),
+    0 18px 46px rgba(0,0,0,.42),
+    0 0 34px rgba(71, 231, 128, .26);
+}
+
+#chipCard.is-busy { animation: cardBreath 1.4s var(--ease-soft) infinite; }
+@keyframes cardBreath {
+  0%, 100% { filter: brightness(1); transform: translateY(0); }
+  50% { filter: brightness(1.10); transform: translateY(-2px); }
+}
+
+@media (max-width: 1180px) {
+  .grid-device { grid-template-columns: minmax(0, 1fr); }
+  .stage.device-stage { height: 410px; }
+}
+
+
+/* v2.3.1: user-supplied device photo, stable rotation, true landscape card */
+.stage.device-stage {
+  perspective: 1200px;
+  perspective-origin: 50% 42%;
+  height: 438px;
+  cursor: grab;
+}
+.stage.device-stage:active { cursor: grabbing; }
+
+.device-model {
+  --spin: 0deg;
+  width: 202px;
+  height: 344px;
+  background: transparent;
+  border: 0;
+  box-shadow: none;
+  transform: rotateY(var(--spin));
+  transform-style: preserve-3d;
+  animation: devBob 7s var(--ease-soft) infinite;
+  will-change: transform;
+}
+.device-model::after { display: none; }
+
+.device-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+  backface-visibility: visible;
+  filter: drop-shadow(0 24px 32px rgba(0,0,0,.36)) saturate(.96) contrast(1.03);
+}
+
+.device-brand,
+.device-pad,
+.nfc-waves { display: none !important; }
+
+.device-led {
+  right: 14.5%;
+  top: 7.2%;
+  width: 16px;
+  height: 8px;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
+}
+.device-led.on {
+  background: #7df49d;
+  box-shadow: 0 0 10px rgba(80, 239, 128, .9), 0 0 22px rgba(80, 239, 128, .38);
+  opacity: 1;
+}
+.device-led.busy {
+  background: #ffd15c;
+  box-shadow: 0 0 10px rgba(255, 202, 66, .92), 0 0 22px rgba(255, 202, 66, .42);
+  opacity: 1;
+}
+.device-led.err {
+  background: #ff746a;
+  box-shadow: 0 0 10px rgba(255, 74, 64, .92), 0 0 22px rgba(255, 74, 64, .42);
+  opacity: 1;
+}
+
+.device-spin-controls { margin-top: 2px; }
+.device-spin-controls .btn { min-width: 86px; }
+
+.card-find { grid-template-columns: 240px minmax(0, 1fr); }
+
+/* v2.4.0 权威定义：竖长方形（1:1.6）、不透明、壁纸主色 */
+#chipCard.chip-card {
+  width: 200px;
+  height: 320px;
+  aspect-ratio: 5 / 8;
+  border-radius: 28px;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 14px;
+  padding: 30px 18px;
+  overflow: hidden;
+  backdrop-filter: none;
+  -webkit-backdrop-filter: none;
+  background:
+    linear-gradient(135deg, rgba(255,255,255,.22) 0%, rgba(255,255,255,.06) 38%, rgba(0,0,0,.16) 100%),
+    linear-gradient(162deg, rgb(var(--wall-accent-2-rgb)) 0%, rgb(var(--wall-accent-rgb)) 62%, rgb(var(--wall-accent-rgb)) 100%);
+  border: 1px solid rgba(255,255,255,.28);
+  box-shadow:
+    inset 0 1px 0 rgba(255,255,255,.42),
+    inset 0 -1px 0 rgba(0,0,0,.18),
+    0 18px 42px rgba(0,0,0,.36);
+}
+
+
+
+
+/* Photo-backed 3D depth: layered silhouettes replace the paper-thin card. */
+.device-depth {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+.device-depth-slice {
+  position: absolute;
+  inset: 0;
+  opacity: .98;
+  backface-visibility: visible;
+}
+#deviceFace {
+  z-index: 3;
+  transform: translateZ(8px);
+  transform-style: preserve-3d;
+}
+
+/* ======================================================================
+   v2.4.0 设备 3D 修复与卡片收尾（置于文件末尾，覆盖此前所有同名声明）
+   - 正面仅 1 张透明 PNG；机身厚度由 14 层纯色剪影叠出（薄机身）
+   - 旋转由 JS 驱动 --spin；stage 保留 perspective，不再被 overflow 裁切
+   ====================================================================== */
+.stage.device-stage {
+  perspective: 1400px !important;
+  perspective-origin: 50% 44% !important;
+  height: 426px !important;
+  overflow: visible !important;
+  cursor: grab;
+}
+.stage.device-stage:active { cursor: grabbing; }
+
+.device-model {
+  --spin: 0deg;
+  width: 202px !important;
+  height: 344px !important;
+  aspect-ratio: 620 / 1020;
+  background: transparent !important;
+  border: 0 !important;
+  border-radius: 0 !important;
+  box-shadow: none !important;
+  transform: rotateY(var(--spin));
+  transform-style: preserve-3d;
+  animation: devBob 7s var(--ease-soft) infinite;
+  will-change: transform;
+}
+.device-model::after { display: none !important; }
+
+.device-depth {
+  position: absolute;
+  inset: 0;
+  transform-style: preserve-3d;
+  pointer-events: none;
+}
+.device-depth-slice {
+  position: absolute;
+  inset: 0;
+  border-radius: 34px;
+  opacity: 1 !important;
+  background: linear-gradient(180deg, #f4f7fb 0%, #e3e8f0 48%, #cbd2dd 100%) !important;
+  /* 用正面图自身的 alpha 轮廓当遮罩：厚度层形状 = 设备真实轮廓，
+     正面视角下不会在设备外侧露出一圈白色矩形边（v2.4.1 修复） */
+  -webkit-mask-image: url(../assets/device_user_cut.png);
+  mask-image: url(../assets/device_user_cut.png);
+  -webkit-mask-size: 100% 100%;
+  mask-size: 100% 100%;
+  -webkit-mask-repeat: no-repeat;
+  mask-repeat: no-repeat;
+  filter: none !important;
+  backface-visibility: visible;
+}
+#deviceFace {
+  z-index: 5;
+  transform: translateZ(7.5px);
+  transform-style: preserve-3d;
+}
+.device-photo {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: contain;
+  display: block;
+  pointer-events: none;
+  backface-visibility: visible;
+  filter: drop-shadow(0 20px 30px rgba(0,0,0,.34)) !important;
+}
+
+.device-led,
+.device-model .d3-led {
+  position: absolute;
+  right: 14.5%;
+  top: 7.2%;
+  width: 16px;
+  height: 8px;
+  border-radius: 999px;
+  background: transparent;
+  box-shadow: none;
+  opacity: 0;
+  transition: background .5s var(--ease), box-shadow .5s var(--ease), opacity .5s var(--ease);
+}
+.device-led.on, .device-model .d3-led.on {
+  background: #7df49d !important;
+  box-shadow: 0 0 10px rgba(80,239,128,.9), 0 0 22px rgba(80,239,128,.38) !important;
+  opacity: 1 !important;
+}
+.device-led.busy, .device-model .d3-led.busy {
+  background: #ffd15c !important;
+  box-shadow: 0 0 10px rgba(255,202,66,.92), 0 0 22px rgba(255,202,66,.42) !important;
+  opacity: 1 !important;
+}
+.device-led.err, .device-model .d3-led.err {
+  background: #ff746a !important;
+  box-shadow: 0 0 10px rgba(255,74,64,.92), 0 0 22px rgba(255,74,64,.42) !important;
+  opacity: 1 !important;
+}
+
+/* ======================================================================
+   v2.5.0 寻卡结果卡片：完全不透明实色卡面（最终权威定义，覆盖此前所有同名声明）
+   - 卡面只用 rgb() 实色渐变（亮档 → 主色 → 深档），不含任何 alpha 覆盖层
+   - 显式禁用 backdrop-filter / 透明度 / 混合模式，彻底去掉「半透明磨砂」观感
+   - 颜色依旧跟随壁纸主色：三个色阶全部由 JS 从壁纸提取的主色派生
+   ====================================================================== */
+#chipCard.chip-card {
+  width: 200px !important;
+  height: 320px !important;
+  aspect-ratio: 5 / 8 !important;
+  border-radius: 28px !important;
+  padding: 30px 18px !important;
+  overflow: hidden !important;
+  opacity: 1 !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  filter: none !important;
+  /* v2.7.0：去掉白色高光边（「磨砂玻璃」观感的主要来源），
+     只用主色三档纯实色渐变 + 深色内阴影塑造立体感 */
+  background: linear-gradient(158deg,
+    rgb(var(--wall-accent-2-rgb)) 0%,
+    rgb(var(--wall-accent-rgb)) 58%,
+    rgb(var(--wall-accent-deep-rgb)) 100%) !important;
+  border: 1px solid rgb(var(--wall-accent-2-rgb)) !important;
+  box-shadow:
+    inset 0 2px 6px rgba(0, 0, 0, .22),
+    inset 0 -3px 8px rgba(0, 0, 0, .18),
+    0 18px 42px rgba(0, 0, 0, .40) !important;
+}
+/* 旧版卡面高光 / 斜向扫光伪元素一律不再生成 */
+#chipCard.chip-card::before,
+#chipCard.chip-card::after { content: none !important; display: none !important; }
+
+#chipCard .card-corner {
+  color: #ffffff !important;
+  opacity: 1 !important;
+  text-shadow: 0 1px 2px rgb(var(--wall-accent-deep-rgb)) !important;
+}
+#chipCard .card-waves i {
+  border: 2px solid rgb(var(--wall-accent-lite-rgb)) !important;
+  border-top-color: transparent !important;
+  border-left-color: transparent !important;
+  border-bottom-color: transparent !important;
+  opacity: 1 !important;
+}
+#chipCard .chip-uid {
+  color: #ffffff !important;
+  text-shadow: 0 1px 3px rgb(var(--wall-accent-deep-rgb)) !important;
+}
+#chipCard .chip-class {
+  color: #ffffff !important;
+  background: rgb(var(--wall-accent-deep-rgb)) !important;
+  border: 1px solid rgb(var(--wall-accent-2-rgb)) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+#chipCard .chip-class.ok {
+  color: #ffffff !important;
+  background: #1c8c4c !important;
+  border-color: #3ed07d !important;
+}
+#chipCard .chip-class.warn {
+  color: #ffffff !important;
+  background: #9a7511 !important;
+  border-color: #e6c02c !important;
+}
+#chipCard.is-found {
+  border-color: rgb(var(--wall-accent-lite-rgb)) !important;
+  box-shadow:
+    inset 0 1px 0 rgb(var(--wall-accent-lite-rgb)),
+    0 18px 46px rgba(0, 0, 0, .42),
+    0 0 34px rgba(71, 231, 128, .30) !important;
+}
+#chipCard.is-busy {
+  border-color: rgb(var(--wall-accent-lite-rgb)) !important;
+  box-shadow:
+    inset 0 1px 0 rgb(var(--wall-accent-lite-rgb)),
+    0 0 34px rgba(10, 132, 255, .32) !important;
+}
+body.light #chipCard.chip-card {
+  border-color: rgb(var(--wall-accent-2-rgb)) !important;
+  box-shadow:
+    inset 0 1px 0 rgb(var(--wall-accent-lite-rgb)),
+    inset 0 -2px 0 rgb(var(--wall-accent-deep-rgb)),
+    0 14px 34px rgba(0, 0, 0, .22) !important;
+}
+
+/* ======================================================================
+   v2.7.0 寻卡读写页卡片：卡面与容器双层「完全不透明实色 + 明确明暗分层」
+   - 卡面 #chipCard：主色三档纯实色渐变，去掉白色高光边（磨砂错觉来源）
+   - 容器 .card.glass.card-find：深色不透明实色底，与主色卡面形成清晰
+     对比，避免同色融合导致的「朦胧 / 透底」观感
+   - 两层均彻底禁用 backdrop-filter 与玻璃伪元素
+   ====================================================================== */
+.card.glass.card-find {
+  background: linear-gradient(168deg,
+    rgb(27, 33, 49) 0%,
+    rgb(20, 25, 38) 58%,
+    rgb(13, 17, 27) 100%) !important;
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+  border: 1px solid rgba(var(--wall-accent-2-rgb), .42) !important;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, .07),
+    0 16px 38px rgba(0, 0, 0, .42) !important;
+}
+.card.glass.card-find::before,
+.card.glass.card-find::after {
+  content: none !important;
+  display: none !important;
+  background: none !important;
+}
+/* 实色底上重设文字与控件的对比度，避免浅色壁纸下看不清 */
+.card.glass.card-find .card-head h2 { color: #fff !important; }
+.card.glass.card-find .hint,
+.card.glass.card-find .muted { color: rgba(255, 255, 255, .78) !important; }
+
+/* ======================================================================
+   v2.8.0 寻卡读写页卡片·最终实色化（覆盖 v2.5.0 / v2.7.0 的同名声明）
+   - 卡面去掉「亮色高光描边」与「顶部近白亮档」：这两者是实色卡面仍被
+     看成磨砂玻璃的直接原因（浅色高光边缘＝玻璃折射的视觉暗示）
+   - 卡面＝壁纸主色（中档）→ 主色深档 的两档纯实色渐变 + 同色系深色实色描边
+   - 容器＝深色不透明实色底 + 深色实色描边，去掉半透明描边与白色内高光
+   ====================================================================== */
+#chipCard.chip-card {
+  background: linear-gradient(158deg,
+    rgb(var(--wall-accent-rgb)) 0%,
+    rgb(var(--wall-accent-deep-rgb)) 100%) !important;
+  border: 1px solid rgb(var(--wall-accent-deep-rgb)) !important;
+  box-shadow:
+    inset 0 -4px 10px rgba(0, 0, 0, .22),
+    0 18px 42px rgba(0, 0, 0, .40) !important;
+}
+#chipCard .chip-class {
+  background: rgb(var(--wall-accent-deep-rgb)) !important;
+  border: 1px solid rgb(var(--wall-accent-rgb)) !important;
+}
+#chipCard.is-found {
+  border-color: rgb(var(--wall-accent-deep-rgb)) !important;
+  box-shadow:
+    0 18px 46px rgba(0, 0, 0, .42),
+    0 0 34px rgba(71, 231, 128, .30) !important;
+}
+#chipCard.is-busy {
+  border-color: rgb(var(--wall-accent-deep-rgb)) !important;
+  box-shadow:
+    0 18px 42px rgba(0, 0, 0, .40),
+    0 0 34px rgba(10, 132, 255, .32) !important;
+}
+body.light #chipCard.chip-card {
+  border-color: rgb(var(--wall-accent-deep-rgb)) !important;
+  box-shadow:
+    inset 0 -3px 8px rgba(0, 0, 0, .18),
+    0 14px 34px rgba(0, 0, 0, .22) !important;
+}
+.card.glass.card-find {
+  border: 1px solid rgb(52, 63, 88) !important;
+  box-shadow:
+    0 16px 38px rgba(0, 0, 0, .42) !important;
+}
+
