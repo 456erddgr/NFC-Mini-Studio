@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import base64
 import json
+import os
 import re
 import subprocess
 import time
@@ -73,6 +74,141 @@ def _jwt_payload(token: str) -> dict:
         return obj if isinstance(obj, dict) else {}
     except Exception:
         return {}
+
+
+def jwt_exp(token: str) -> int:
+    """取 JWT 的 exp（秒级时间戳）；拿不到返回 0。"""
+    payload = _jwt_payload(token)
+    exp = payload.get("exp")
+    return int(exp) if isinstance(exp, int) else 0
+
+
+# ---------------------------------------------------------------- 拉起微信
+WECHAT_CANDIDATES = (
+    r"C:\Program Files\Tencent\WeChat\WeChat.exe",
+    r"C:\Program Files (x86)\Tencent\WeChat\WeChat.exe",
+    r"C:\Program Files\Tencent\Weixin\Weixin.exe",
+    r"C:\Program Files (x86)\Tencent\Weixin\Weixin.exe",
+)
+
+
+def find_wechat_exe() -> str:
+    """找微信 PC 版主程序：先查注册表 App Paths，再查常见安装路径。"""
+    if not IS_WINDOWS:
+        return ""
+    for exe in ("WeChat.exe", "Weixin.exe"):
+        try:
+            import winreg
+
+            with winreg.OpenKey(
+                    winreg.HKEY_CURRENT_USER,
+                    rf"Software\Microsoft\Windows\CurrentVersion\App Paths\{exe}") as key:
+                path = str(winreg.QueryValue(key, None) or "")
+            if path and Path(path).exists():
+                return path
+        except Exception:                            # noqa: BLE001
+            pass
+    for path in WECHAT_CANDIDATES:
+        if Path(path).exists():
+            return path
+    # 最后兜底：扫常见安装根目录
+    for base in (r"C:\Program Files\Tencent", r"C:\Program Files (x86)\Tencent",
+                 r"D:\Program Files\Tencent", r"E:\Program Files\Tencent"):
+        b = Path(base)
+        if not b.exists():
+            continue
+        for name in ("WeChat.exe", "Weixin.exe"):
+            hit = next(b.rglob(name), None)
+            if hit:
+                return str(hit)
+    return ""
+
+
+def launch_wechat() -> Dict[str, object]:
+    """启动微信 PC 版（已在运行则直接返回）。"""
+    if not IS_WINDOWS:
+        return {"ok": False, "error": "该功能仅支持 Windows 微信 PC 版"}
+    for name in ("WeChat", "Weixin"):
+        try:
+            out = subprocess.run(["tasklist", "/FI", f"IMAGENAME eq {name}.exe"],
+                                 capture_output=True, text=True, timeout=10)
+            if f"{name}.exe" in (out.stdout or ""):
+                return {"ok": True, "already_running": True, "exe": name}
+        except Exception:                            # noqa: BLE001
+            pass
+    exe = find_wechat_exe()
+    if not exe:
+        return {"ok": False, "error": "没有找到微信主程序，请确认已安装微信 PC 版"}
+    try:
+        subprocess.Popen([exe], close_fds=True)
+    except Exception as exc:                         # noqa: BLE001
+        return {"ok": False, "error": f"启动微信失败：{exc}", "exe": exe}
+    return {"ok": True, "exe": exe}
+
+
+def open_miniprogram(appid: str = TARGET_APPID,
+                     path: str = "pages/index/index") -> Dict[str, object]:
+    """直接拉起目标小程序（微信桌面端的 weixin:// 协议）。
+
+    关键教训（2026-10-09 实测）：**不能**用 `cmd /c start "<uri>"`——
+    URI 里的 `&` 会被 cmd 当成命令分隔符，URL 被截断后落到默认浏览器上，
+    看起来"打开了"其实根本没进微信。这里改用 Windows 原生 ShellExecute
+    （os.startfile），由系统把 URI 交给注册好的协议处理器
+    （本机 `weixin://` → `Weixin.exe "%1"`）。
+    """
+    if not IS_WINDOWS:
+        return {"ok": False, "error": "该功能仅支持 Windows 微信 PC 版"}
+    uri = f"weixin://dl/business/?appid={appid}&path={path}"
+    used = ""
+    try:
+        os.startfile(uri)                            # noqa: S606 - 交给系统协议处理器
+        used = "shellexecute"
+    except Exception as exc:                         # noqa: BLE001
+        exe = find_wechat_exe()
+        if not exe:
+            return {"ok": False, "error": f"拉起小程序失败：{exc}（也没找到微信主程序）",
+                    "uri": uri}
+        try:
+            subprocess.Popen([exe, uri], close_fds=True)
+            used = f"direct:{exe}"
+        except Exception as exc2:                    # noqa: BLE001
+            return {"ok": False, "error": f"拉起小程序失败：{exc2}", "uri": uri}
+    time.sleep(2.0)
+    return {"ok": True, "uri": uri, "via": used, "miniprogram_open": miniprogram_open()}
+
+
+def miniprogram_open() -> bool:
+    """判断目标小程序窗口是否已经开着（WeChatAppEx 的窗口标题）。"""
+    if not IS_WINDOWS:
+        return False
+    try:
+        out = subprocess.run(
+            ["powershell", "-NoProfile", "-Command",
+             "(Get-Process WeChatAppEx -ErrorAction SilentlyContinue | "
+             "Where-Object { $_.MainWindowTitle } | Select-Object -ExpandProperty "
+             "MainWindowTitle) -join ' | '"],
+            capture_output=True, text=True, timeout=8)
+        titles = (out.stdout or "").lower()
+        return ("nfc" in titles) or ("宜新" in titles)
+    except Exception:                                # noqa: BLE001
+        return False
+
+
+def wait_for_token(deadline_seconds: float = 45.0, interval: float = 3.0,
+                   min_exp_left: int = 300) -> Dict[str, object]:
+    """轮询抓取 token：等小程序把登录态写进内存，拿到"还没过期"的那把就返回。"""
+    deadline = time.time() + max(5.0, float(deadline_seconds))
+    last: Dict[str, object] = {"ok": False, "error": "等待超时，未抓到可用的 token"}
+    while time.time() < deadline:
+        res = fetch_token(timeout_seconds=12.0)
+        if res.get("ok") and int(res.get("expires_in") or 0) > min_exp_left:
+            return res
+        last = res if not res.get("ok") else {
+            "ok": False,
+            "error": f"抓到的 token 剩余有效期只有 {int(res.get('expires_in') or 0)} 秒，继续等待刷新",
+        }
+        time.sleep(max(1.0, float(interval)))
+    return last
 
 
 def _wechat_pids() -> List[int]:

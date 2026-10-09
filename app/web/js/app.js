@@ -149,7 +149,9 @@ const CORE_API = ['app_info', 'get_settings', 'save_settings', 'list_wallpapers'
                   'card_list', 'scan', 'connect',
                   'find_card', 'status',
                   /* 破解双模式：引擎状态与本地向量自检（后端 app/api.py L374/L379 暴露） */
-                  'crack_engine_status', 'crack_vectors'];
+                  'crack_engine_status', 'crack_vectors',
+                  /* 云端 token 自动校验 / 自动续期 */
+                  'cloud_token_check', 'wx_auto_token', 'wx_open_miniprogram'];
 
 function apiReady() {
   const a = (window.pywebview && window.pywebview.api) || null;
@@ -1964,6 +1966,7 @@ function bindUI() {
   if ($('#modeLocal')) $('#modeLocal').onclick = () => setCrackMode('local', true);
   if ($('#btnVerifyLocal')) $('#btnVerifyLocal').onclick = doVerifyLocal;
   if ($('#btnWxToken')) $('#btnWxToken').onclick = doWxToken;
+  if ($('#btnVerifyToken')) $('#btnVerifyToken').onclick = doVerifyToken;
   /* 密码库 */
   if ($('#kbTabPublic')) $('#kbTabPublic').onclick = () => setKeyboxTab('public');
   if ($('#kbTabUser')) $('#kbTabUser').onclick = () => setKeyboxTab('user');
@@ -2031,6 +2034,7 @@ function bindUI() {
           crack_timeout: +$('#setCrackTimeout').value || 25,
           crack_all_budget: +($('#setCrackBudget') ? $('#setCrackBudget').value : 300) || 300,
           crack_batch_auth: !!($('#setCrackBatch') || {}).checked,
+          crack_device_cache: !!($('#setCrackDevice') || {}).checked,
           auto_crack: !!$('#setAutoCrack').checked,
           auto_find: !!$('#setAutoFind').checked,
           hid_enable: !!($('#setHidEnable') || {}).checked,
@@ -2309,9 +2313,10 @@ async function doWxToken() {
   const out = $('#wxTokenOut');
   const btn = $('#btnWxToken');
   if (btn) btn.disabled = true;
-  if (out) out.textContent = '正在扫描微信小程序进程（请保持小程序已打开）…';
+  if (out) out.textContent = '正在打开微信并拉起「宜新 NFC Reader Tool」，抓到登录态后会自动填入…';
+  setBadge('#tokenBadge', '获取中', 'info live');
   try {
-    const r = await api('wx_fetch_token', true);
+    const r = await api('wx_auto_token', 75, true);
     const hours = (r && r.hours != null) ? r.hours : Math.floor(((r && r.expires_in) || 0) / 3600);
     const text = `已获取云端 token：UID ${(r && r.uid) || '?'} · 剩余约 ${hours} 小时 · 已自动填入并切到云端`;
     if (out) out.textContent = text;
@@ -2319,15 +2324,84 @@ async function doWxToken() {
     state.crack_mode = 'cloud';
     renderCrackMode('cloud');
     if ($('#setCloudToken')) $('#setCloudToken').value = '';
+    setBadge('#tokenBadge', '可用', 'ok');
     toast('已从微信获取云端 token', 'ok');
     log(text, 'ok');
     await refreshCrackEngine();
   } catch (e) {
     if (out) out.textContent = '获取失败：' + e.message;
+    setBadge('#tokenBadge', '获取失败', 'err');
     toast('获取 token 失败：' + e.message, 'err');
     log('获取云端 token 失败：' + e.message, 'err');
   } finally {
     if (btn) btn.disabled = false;
+  }
+}
+
+async function doVerifyToken() {
+  const out = $('#wxTokenOut');
+  const btn = $('#btnVerifyToken');
+  if (btn) btn.disabled = true;
+  if (out) out.textContent = '正在校验云端 token…';
+  setBadge('#tokenBadge', '校验中', 'info live');
+  try {
+    const r = await api('cloud_token_check');
+    const d = (r && r.data) ? r.data : (r || {});
+    if (d.valid) {
+      setBadge('#tokenBadge', '可用', 'ok');
+      if (out) out.textContent = 'token 可用：' + (d.reason || '') +
+        (d.expires_in ? `（剩余约 ${Math.floor(d.expires_in / 3600)} 小时）` : '');
+    } else {
+      setBadge('#tokenBadge', '已失效', 'warn');
+      if (out) out.textContent = 'token 不可用：' + (d.reason || '未知原因');
+    }
+    log('云端 token 校验：' + (out ? out.textContent : ''), d.valid ? 'ok' : 'warn');
+    await refreshCrackEngine();
+  } catch (e) {
+    setBadge('#tokenBadge', '校验失败', 'err');
+    if (out) out.textContent = '校验失败：' + e.message;
+  } finally {
+    if (btn) btn.disabled = false;
+  }
+}
+
+/* 启动时自动校验云端 token：失效就征求同意，同意后打开微信小程序自动续期 */
+async function autoCheckCloudToken() {
+  try {
+    const r = await api('cloud_token_check');
+    const d = (r && r.data) ? r.data : (r || {});
+    if (d.valid) {
+      setBadge('#tokenBadge', '可用', 'ok');
+      log('云端 token 校验通过：' + (d.reason || ''), 'ok');
+      return;
+    }
+    if (!d.has_token) {
+      setBadge('#tokenBadge', '未配置', 'warn');
+      log('尚未配置云端 token（破解会走本地 mfkey32）', 'info');
+      return;
+    }
+    setBadge('#tokenBadge', d.expired ? '已过期' : '被拒', 'warn');
+    const ok = await confirmBox('云端 token 需要更新',
+      (d.reason || '云端 token 不可用') + '\n\n' +
+      '是否现在自动获取？过程会打开微信并拉起「宜新 NFC Reader Tool」小程序，' +
+      '抓到新的登录态后自动填入（需要微信处于登录状态）。\n\n' +
+      (d.reachable === false ? '（当前网络似乎不通，抓到 token 也可能无法解算）\n\n' : '') +
+      '确定开始吗？');
+    if (!ok) {
+      log('已跳过自动获取云端 token', 'info');
+      return;
+    }
+    log('收到同意：打开微信 → 拉起小程序 → 自动抓取登录态…', 'info');
+    await doWxToken();
+    const again = await api('cloud_token_check');
+    const d2 = (again && again.data) ? again.data : (again || {});
+    if (d2.valid) {
+      toast('云端 token 已更新可用', 'ok');
+    } else {
+      toast('token 仍未生效：' + (d2.reason || ''), 'warn');
+    }
+  } catch (e) {
+    log('云端 token 自动校验异常：' + e.message, 'warn');
   }
 }
 async function doVerifyLocal() {
@@ -2403,6 +2477,7 @@ async function loadBackend() {
     if ($('#setCrackTimeout')) $('#setCrackTimeout').value = state.settings.crack_timeout || 25;
     if ($('#setCrackBudget')) $('#setCrackBudget').value = state.settings.crack_all_budget || 300;
     if ($('#setCrackBatch')) $('#setCrackBatch').checked = state.settings.crack_batch_auth !== false;
+    if ($('#setCrackDevice')) $('#setCrackDevice').checked = state.settings.crack_device_cache !== false;
     if ($('#setAutoCrack')) $('#setAutoCrack').checked = state.settings.auto_crack !== false;
     if ($('#setAutoFind')) $('#setAutoFind').checked = state.settings.auto_find !== false;
     /* 破解页扫描开关与全局「寻卡后自动破解」保持同步 */
@@ -2480,6 +2555,8 @@ async function init() {
   log('界面已就绪，正在连接后端…', 'ok');
   await loadBackend();
   log(`NFC Mini Studio ${state.version || ''} 已就绪`, 'ok');
+  // 启动时自动校验云端 token：失效会弹窗征求同意，同意后打开微信小程序自动续期
+  autoCheckCloudToken();
 }
 
 let __booted = false;

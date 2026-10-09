@@ -604,6 +604,10 @@ class Api:
         # 固件本身仍是串行处理，省下的是主机侧往返）。漏应答即退回串行。
         BATCH_SIZE = 8
         batch_state = {"ok": bool(self.settings.data.get("crack_batch_auth", True))}
+        # 设备端批量验证（0x40 灌密钥表 + 0x41 让设备自己试）：候选表够大时优先走它，
+        # 固件明确拒绝或异常就整体退回主机逐把验证。
+        device_state = {"ok": bool(self.settings.data.get("crack_device_cache", True))}
+        DEVICE_MIN_KEYS = 32
 
         def _try(sector: int, key_hex: str, kt: int) -> bool:
             try:
@@ -640,9 +644,51 @@ class Api:
             """
             tried = {"n": 0}
 
+            def device_search(sector: int, kt: int):
+                """0x40 + 0x41：把候选表灌进设备、让设备自己试出该块密钥。
+
+                命中返回 (key_hex, 来源标签, kt)；不可用/未命中返回 None（上层回退主机验证）。
+                """
+                if not device_state["ok"] or len(keys) < DEVICE_MIN_KEYS:
+                    return None
+                for start in range(0, len(keys), KEY_CACHE_MAX):
+                    if stopped() or time.time() > deadline:
+                        return None
+                    chunk = keys[start:start + KEY_CACHE_MAX]
+                    try:
+                        res = self.device.device_batch_verify(
+                            [text for _tag, text in chunk], block=sector * 4,
+                            key_type=kt, timeout=30.0)
+                    except Exception as exc:               # noqa: BLE001
+                        self._on_device_log(
+                            "warn", f"设备端批量验证不可用（{exc}），改用主机逐把验证")
+                        device_state["ok"] = False
+                        return None
+                    if res.get("ok"):
+                        key = str(res.get("key") or "").replace(" ", "").upper()
+                        tag = next((t for t, txt in chunk if txt == key), "设备端批量验证")
+                        self._on_device_log(
+                            "ok", f"扇区 {sector}：设备端批量验证命中 {key}"
+                                  f"（{'KEY B' if kt else 'KEY A'}，本批 {len(chunk)} 把）")
+                        return (key, tag, kt)
+                    if res.get("status") in (0x02, 0x04, 0x11):
+                        # 固件明确回"地址/长度/卡片"错误 → 这套指令在当前固件不可用
+                        self._on_device_log(
+                            "warn", f"设备端批量验证被拒（{res.get('detail')}），"
+                                    f"改用主机逐把验证")
+                        device_state["ok"] = False
+                        return None
+                    tried["n"] += len(chunk)
+                    emit(int(len(found) / total_sectors * 100),
+                         f"扇区 {sector} · 设备端批量验证 {tried['n']}/{len(keys)} 把未命中")
+                return None
+
             def scan(sector: int):
                 """扫候选表，返回命中的 (key_hex, 来源标签, key_type) 或 None。"""
                 for kt in kt_order:
+                    got = device_search(sector, kt)     # ① 优先交给设备自己试（最快）
+                    if got:
+                        return got
                     idx, total = 0, len(keys)
                     while idx < total:
                         if stopped() or time.time() > deadline:
@@ -1722,6 +1768,105 @@ class Api:
                 "token_tail": str(res.get("token", ""))[-8:],
                 "saved": bool(save),
             }
+        return self._guard(work)
+
+    def cloud_token_check(self) -> dict:
+        """校验云端 token 是否还可用：先本地看 JWT 过期时间，再向网关发一次轻量探测。
+
+        返回 {"has_token", "valid", "expired", "reachable", "reason", "expires_in", ...}。
+        注意区分两种情况：网络不通（reachable=False，不能据此判定 token 失效）
+        与网关明确拒绝（valid=False，需要重新获取）。
+        """
+        from .crack_engine import vendor_token_probe
+        from .wx_token import jwt_exp
+
+        def work():
+            conf = cloud_config(self.settings.data)
+            token = str(conf.get("token") or "")
+            base = {"endpoint": conf["endpoint"], "has_token": bool(token)}
+            if not token:
+                return dict(base, valid=False, expired=False, reachable=None,
+                            expires_in=0, reason="尚未配置云端 token")
+            now = time.time()
+            exp = jwt_exp(token)
+            left = int(exp - now) if exp else 0
+            if exp and exp <= now:
+                return dict(base, valid=False, expired=True, reachable=None,
+                            expires_in=left,
+                            reason=f"登录态 token 已过期（本地校验，过期 {-left // 60} 分钟）")
+            probe = vendor_token_probe(token, conf["endpoint"],
+                                       timeout=min(10.0, float(conf["timeout"]) + 3))
+            if not probe.get("reachable"):
+                return dict(base, valid=True, expired=False, reachable=False,
+                            expires_in=left, detail=probe.get("detail", ""),
+                            reason="网络不可达，无法确认 token（不视为失效）")
+            if not probe.get("authorized"):
+                return dict(base, valid=False, expired=False, reachable=True,
+                            expires_in=left, detail=probe.get("detail", ""),
+                            reason="云端网关拒绝了该 token，需要重新获取")
+            return dict(base, valid=True, expired=False, reachable=True,
+                        expires_in=left, detail=probe.get("detail", ""),
+                        reason=(f"token 可用，剩余约 {left // 3600} 小时" if left > 0
+                                else "token 可用"))
+        return self._guard(work)
+
+    def wx_open_miniprogram(self) -> dict:
+        """打开微信（若未运行）并尽量直接拉起「宜新 NFC Reader Tool」小程序。"""
+        from .wx_token import launch_wechat, open_miniprogram
+
+        def work():
+            steps = []
+            lw = launch_wechat()
+            steps.append({"step": "launch_wechat", **lw})
+            mp = open_miniprogram()
+            steps.append({"step": "open_miniprogram", **mp})
+            ok = bool(lw.get("ok"))
+            opened = bool(mp.get("miniprogram_open"))
+            if opened:
+                self._on_device_log("ok", "小程序已在微信中打开（检测到 NFC Tools 窗口）")
+            elif ok:
+                self._on_device_log(
+                    "warn", "已把小程序拉起请求交给微信；没检测到小程序窗口，"
+                            "请在微信里手动点开一次「宜新 NFC Reader Tool」")
+            else:
+                self._on_device_log("err", str(lw.get("error") or "打开微信失败"))
+            return {"ok": ok, "miniprogram_open": opened, "steps": steps,
+                    "hint": "如果小程序没有自动出现，请在微信里手动点开一次"
+                            "「宜新 NFC Reader Tool」并确认已登录。"
+                            "注意：小程序可能会自动连上读卡器并占用蓝牙，"
+                            "用完请在小程序里断开，桌面端才能连上。"}
+        return self._guard(work)
+
+    def wx_auto_token(self, wait_seconds: float = 60.0, launch: bool = True) -> dict:
+        """一键续期云端 token：打开微信/小程序 → 轮询抓取 → 自动保存并校验。
+
+        wait_seconds 内没抓到"剩余有效期够用"的 token 就报错，不会写入半成品。
+        """
+        from .wx_token import launch_wechat, open_miniprogram, wait_for_token
+
+        def work():
+            steps = []
+            if launch:
+                lw = launch_wechat()
+                steps.append({"step": "launch_wechat", **lw})
+                mp = open_miniprogram()
+                steps.append({"step": "open_miniprogram", **mp})
+                self._on_device_log(
+                    "info", "已打开微信并尝试拉起小程序，正在等待登录态刷新…")
+            res = wait_for_token(deadline_seconds=float(wait_seconds))
+            if not res.get("ok"):
+                raise NfcError(str(res.get("error") or "未能从微信小程序获取 token"))
+            data = self.settings.update({"cloud_token": res["token"],
+                                         "crack_mode": "cloud"})
+            self._crack_engine.bind(self.settings.data)
+            hours = max(0, int(res.get("expires_in") or 0)) // 3600
+            self._on_device_log(
+                "ok", f"已自动获取并填入云端 token（UID {res.get('uid') or '?'}，"
+                      f"剩余约 {hours} 小时）")
+            return {"uid": res.get("uid"), "expires_in": res.get("expires_in"),
+                    "hours": hours, "token_tail": str(res.get("token", ""))[-8:],
+                    "endpoint": data.get("cloud_endpoint"), "steps": steps,
+                    "wait_seconds": float(wait_seconds)}
         return self._guard(work)
 
     def wx_token_status(self) -> dict:

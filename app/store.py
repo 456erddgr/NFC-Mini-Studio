@@ -36,6 +36,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "crack_timeout": 25,        # 单种破解方式的最长等待（秒）
     "crack_all_budget": 300,    # 全卡破解（16 扇区逐把验证）的总时间上限（秒）
     "crack_batch_auth": True,   # 候选密钥批量认证（约 1.1x；设备漏应答自动退回串行）
+    "crack_device_cache": True,  # 0x40 密钥缓存 + 0x41 设备端批量搜索（候选多时最快）
     "show_device": True,        # 设备页 3D 展示开关
     "device_spin": 18,          # 设备 3D 自转速度（度/秒，0 = 停转）
     # ---- v2.2.0 新增：破解双模式（云端 / 本地 mfkey32）----

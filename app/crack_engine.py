@@ -612,6 +612,60 @@ def vendor_urls(endpoint: str = "") -> Dict[str, str]:
     return {"recovery": ep, "base": ep, "keygen": VENDOR_KEYGEN_BASE}
 
 
+def vendor_token_probe(token: str, endpoint: str = "",
+                       timeout: float = 8.0) -> Dict[str, Any]:
+    """探测登录态 token 是否仍被厂商网关接受（启动时自动校验用）。
+
+    用最轻的 GET /get-devices 探：它同样要求 NICETHEME 登录态。
+    返回 {"reachable": bool, "authorized": bool, "status": int, "detail": str}
+      * reachable=False  → 网络不通，**不能**据此判定 token 失效；
+      * authorized=False → 网关明确拒绝（401/403 或消息里带 token）→ 需要重新获取。
+    """
+    tok = str(token or "").strip()
+    if not tok:
+        return {"reachable": True, "authorized": False, "status": 0,
+                "detail": "未配置云端 token"}
+    urls = vendor_urls(endpoint)
+    url = urls["base"].rstrip("/") + "/get-devices"
+    req = urllib.request.Request(url, headers={
+        "Accept": "application/json", AUTH_HEADER: tok, "User-Agent": VENDOR_UA,
+    }, method="GET")
+    try:
+        with urllib.request.urlopen(req, timeout=float(timeout)) as resp:
+            text = resp.read().decode("utf-8", "replace")
+            status = int(getattr(resp, "status", 200) or 200)
+    except urllib.error.HTTPError as exc:
+        status = int(exc.code)
+        try:
+            text = exc.read().decode("utf-8", "replace")
+        except Exception:                            # noqa: BLE001
+            text = ""
+        if status in (401, 403) or "token" in text.lower():
+            return {"reachable": True, "authorized": False, "status": status,
+                    "detail": f"网关拒绝：HTTP {status} {text[:120]}".strip()}
+        # 其它 HTTP 错误（例如 404/5xx）说明网络通、但探测端点不可用，
+        # 不能据此判定 token 失效，交给上层按"未知"处理。
+        return {"reachable": True, "authorized": True, "status": status,
+                "detail": f"探测端点返回 HTTP {status}（token 未必失效）"}
+    except (socket.timeout, TimeoutError) as exc:
+        return {"reachable": False, "authorized": True, "status": 0,
+                "detail": f"探测超时：{exc}"}
+    except urllib.error.URLError as exc:
+        if isinstance(getattr(exc, "reason", None), (socket.timeout, TimeoutError)):
+            return {"reachable": False, "authorized": True, "status": 0,
+                    "detail": f"探测超时：{exc}"}
+        return {"reachable": False, "authorized": True, "status": 0,
+                "detail": f"网络不可达：{exc.reason or exc}"}
+    except Exception as exc:                         # noqa: BLE001
+        return {"reachable": False, "authorized": True, "status": 0,
+                "detail": f"探测异常：{type(exc).__name__}: {exc}"}
+    if "token" in text.lower() and '"status":200' not in text.replace(" ", ""):
+        return {"reachable": True, "authorized": False, "status": status,
+                "detail": f"网关疑似拒绝：{text[:120]}"}
+    return {"reachable": True, "authorized": True, "status": status,
+            "detail": f"网关接受（HTTP {status}）"}
+
+
 def _frame_u32(frame: NonceFrame) -> Dict[str, int]:
     """厂商 recovery/mfkey32v2 的真实字段映射（小程序 q() 原型，逐字节核对）：
 

@@ -30,10 +30,12 @@ from .protocol import (
     NfcError,
     PHONE_WRITE_MODES,
     build_auto_identify_payload,
+    build_batch_find_payload,
     build_block_write_payload,
     build_card_no_payload,
     build_check_card_no_payload,
     build_frame,
+    build_key_cache_payload,
     build_lock_card_payload,
     build_ufuid_lock_payload,
     build_write_payload,
@@ -44,6 +46,7 @@ from .protocol import (
     hex_to_bytes,
     norm_fixed_bytes,
     parse_auto_identify,
+    parse_batch_find_result,
     parse_block_write_result,
     parse_check_card_no,
     parse_id_card,
@@ -436,6 +439,46 @@ class NfcDevice:
         payloads = [bytes([cmd, int(block) & 0xFF]) + _as_key(k) for k in (keys or [])]
         res = self.request_batch(payloads, timeout=timeout)
         return [(_status_code(d) if d else -1) for d in res]
+
+    # ---- 0x40 / 0x41：设备端密钥表批量验证（逆向自小程序，2026-10-09）----
+    def write_key_cache(self, keys, timeout: float = 25.0) -> dict:
+        """0x40 把候选密钥灌进设备内部表（单批 ≤ 500 把，DATA 达 3005 字节走长帧）。"""
+        payload = build_key_cache_payload(keys)
+        d = self.request(payload, timeout=timeout)
+        code = _status_code(d)
+        res = {"ok": code == 0, "status": code, "count": len(list(keys or [])),
+               "payload_len": len(payload), "raw": fmt_hex(d[:32]),
+               "detail": err_text(code) if code else "密钥表已写入设备"}
+        self._log("info" if res["ok"] else "warn",
+                  f"0x40 密钥缓存：{res['count']} 把（{len(payload)} 字节）→ {'OK' if res['ok'] else res['detail']}")
+        return res
+
+    def batch_find_key(self, key_off: int = 1, count: int = 1, key_type: int = 0,
+                       block: int = 0, timeout: float = 25.0) -> dict:
+        """0x41 让设备在密钥表里自己试出该块密钥；命中直接返回密钥。"""
+        payload = build_batch_find_payload(key_off, count, key_type, block)
+        d = self.request(payload, timeout=timeout)
+        res = parse_batch_find_result(d)
+        res.update({"raw": fmt_hex(d), "payload": fmt_hex(payload),
+                    "key_off": int(key_off), "count": int(count),
+                    "key_type": int(key_type) & 1, "block": int(block)})
+        return res
+
+    def device_batch_verify(self, keys, block: int = 0, key_type: int = 0,
+                            timeout: float = 25.0) -> dict:
+        """0x40 + 0x41 组合：把候选密钥交给设备自己试（官方同款批量验证）。"""
+        key_list = list(keys or [])
+        if not key_list:
+            raise NfcError("候选密钥为空", 15)
+        cache = self.write_key_cache(key_list, timeout=timeout)
+        if not cache.get("ok"):
+            return {"ok": False, "key": "", "count": len(key_list),
+                    "detail": f"密钥缓存被拒（{cache.get('detail')}）", "cache": cache}
+        res = self.batch_find_key(key_off=1, count=len(key_list), key_type=key_type,
+                                  block=block, timeout=timeout)
+        res["cache"] = cache
+        res["count"] = len(key_list)
+        return res
 
     # ------------------------------------------------------------ 设备信息
     def device_info(self) -> dict:

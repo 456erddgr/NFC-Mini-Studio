@@ -86,6 +86,10 @@ class Transport:
 # ---------------------------------------------------------------- 蓝牙
 class BleTransport(Transport):
     kind = "ble"
+    # 单次 BLE 写入的分片大小：长帧（如 0x40 灌 500 把密钥 = 3005 字节）必须分片，
+    # 小程序侧也是按 MTU-3 分片、失败再折半重试。
+    CHUNK_NORMAL = 180
+    CHUNK_SMALL = 20
 
     def __init__(self, runner: Optional[AsyncRunner] = None,
                  on_log: Optional[Callable[[str, str], None]] = None) -> None:
@@ -184,10 +188,19 @@ class BleTransport(Transport):
             raise NfcError("设备未连接")
         client = self._client
 
-        async def _write():
-            await client.write_gatt_char(WRITE_UUID, frame, response=False)
+        async def _write(size: int):
+            for i in range(0, len(frame), size):
+                await client.write_gatt_char(WRITE_UUID, frame[i:i + size], response=False)
 
-        self.runner.call(_write(), timeout=8)
+        long_frame = len(frame) > 255
+        try:
+            self.runner.call(_write(self.CHUNK_NORMAL), timeout=25 if long_frame else 8)
+        except Exception as exc:                       # noqa: BLE001
+            if len(frame) <= self.CHUNK_NORMAL:
+                raise
+            # 大分片被拒（部分适配器 MTU 小）：退回 20 字节小分片重发，兼容优先
+            self._log("warn", f"大分片写入失败（{exc}），改用 20 字节小分片重试")
+            self.runner.call(_write(self.CHUNK_SMALL), timeout=60)
 
 
 def handshake(dev, timeout: float = 2.5) -> dict:

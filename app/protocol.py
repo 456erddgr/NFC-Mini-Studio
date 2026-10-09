@@ -19,6 +19,7 @@ from __future__ import annotations
 from typing import List, Optional, Tuple
 
 FRAME_HEAD = 0xFF
+FRAME_HEAD_LONG = 0xFD      # 长数据帧（DATA > 255 字节）：FD | LEN_H | LEN_L | MSGID | DATA | SUM | FE
 FRAME_TAIL = 0xFE
 MSGID_MIN = 1
 MSGID_MAX = 253
@@ -63,6 +64,8 @@ class CMD:
     FM11RF08S = 0x37     # FM11RF08S 后门
     STATICNEST2 = 0x38   # staticnested 破解（变体，DATA = cmd, 块, ?, KEY A idx, KEY B idx）
     AUTO_IDENTIFY = 0x38    # 单字节：自动识别卡片（与 STATICNEST2 同码，靠 DATA 长度区分）
+    KEY_CACHE = 0x40     # 密钥缓存：把候选密钥灌进设备内部表（小程序 G()）
+    BATCH_FIND = 0x41    # 批量搜索：让设备在缓存表里自己试出密钥（小程序 w()）
     RESET = 0x7F         # 复位
 
 
@@ -153,13 +156,22 @@ DEFAULT_KEY = bytes(b"\xFF" * 6)
 
 # ------------------------------------------------------------------ 帧编解码
 def build_frame(data: bytes, msgid: int) -> bytes:
-    """把 DATA 区封装成完整帧。"""
-    if not 1 <= len(data) <= 255:
-        raise NfcError("DATA 长度必须为 1..255 字节")
+    """把 DATA 区封装成完整帧。
+
+    DATA ≤ 255 用短帧 `FF | LEN | MSGID | DATA | SUM | FE`；
+    超过 255 用长帧 `FD | LEN_H | LEN_L | MSGID | DATA | SUM | FE`
+    （逆向自小程序帧层函数 b()：写入 500 把密钥缓存时 DATA = 3005 字节，必须走长帧）。
+    """
+    if not 1 <= len(data) <= 65535:
+        raise NfcError("DATA 长度必须为 1..65535 字节")
     if not MSGID_MIN <= msgid <= MSGID_MAX:
         raise NfcError("MSGID 必须为 1..253")
     checksum = sum(data) & 0xFF
-    return bytes([FRAME_HEAD, len(data), msgid]) + data + bytes([checksum, FRAME_TAIL])
+    if len(data) <= 255:
+        return bytes([FRAME_HEAD, len(data), msgid]) + data + bytes([checksum, FRAME_TAIL])
+    n = len(data)
+    return (bytes([FRAME_HEAD_LONG, (n >> 8) & 0xFF, n & 0xFF, msgid])
+            + data + bytes([checksum, FRAME_TAIL]))
 
 
 class FrameParser:
@@ -177,16 +189,26 @@ class FrameParser:
 
         while True:
             if self._need == 0:
-                if len(self._buf) < 5:
+                if len(self._buf) < 6:
                     break
-                if self._buf[0] != FRAME_HEAD:
+                head = self._buf[0]
+                if head not in (FRAME_HEAD, FRAME_HEAD_LONG):
                     self._buf.pop(0)
                     self.noise += 1
                     continue
-                self._need = self._buf[1] + 5
+                if head == FRAME_HEAD_LONG:
+                    ln = (self._buf[1] << 8) | self._buf[2]
+                    if ln == 0:
+                        self._buf.pop(0)
+                        self.noise += 1
+                        continue
+                    self._need = ln + 6
+                else:
+                    self._need = self._buf[1] + 5
             if len(self._buf) < self._need:
                 break
 
+            long_frame = self._buf[0] == FRAME_HEAD_LONG
             pkt = bytes(self._buf[: self._need])
             del self._buf[: self._need]
             self._need = 0
@@ -194,8 +216,12 @@ class FrameParser:
             if pkt[-1] != FRAME_TAIL:
                 self.noise += 1
                 continue
-            ln, mid = pkt[1], pkt[2]
-            payload, checksum = pkt[3:3 + ln], pkt[3 + ln]
+            if long_frame:
+                ln, mid = ((pkt[1] << 8) | pkt[2]), pkt[3]
+                payload, checksum = pkt[4:4 + ln], pkt[4 + ln]
+            else:
+                ln, mid = pkt[1], pkt[2]
+                payload, checksum = pkt[3:3 + ln], pkt[3 + ln]
             if sum(payload) & 0xFF != checksum:
                 self.noise += 1
                 continue
@@ -548,6 +574,66 @@ def parse_lock_result(d: bytes, cmd: int = CMD.UFUID_LOCK) -> dict:
     return {"ok": code == 0, "status": code,
             "err": None if code == 0 else err_text(code),
             "cmd": f"0x{cmd:02X}"}
+
+
+# ---- 0x40 密钥缓存 / 0x41 批量搜索（逆向自小程序 app-service.js）------
+# 小程序「批量验证」真实流程（Ve 函数）：
+#   ① G(dev, keys)     → 0x40 把候选密钥灌进设备内部表（单批最多 500 把，走长帧）
+#   ② w(dev,1,n,kt,b)  → 0x41 让设备在表里自己试，命中直接回密钥
+#   ③ A(dev,b,kt,key)  → 用 0x06/0x09 真机认证确认
+# 0x40 载荷：[0x40, 0x00, 0x01, LEN_H, LEN_L, key0(6B), key1(6B), ...]  DATA = 6n+5
+# 0x41 载荷：[0x41, OFF_H, OFF_L, CNT_H, CNT_L, keyType, block]
+#   · OFF 固定从 1 起（传 0 固件回 0x04「认证地址有误」——实测踩过）
+#   · keyType 语义与 0x06/0x09 **相反**：1 = KEY A，0 = KEY B
+# 0x41 应答：[0x41, status, key0..key5]
+#   status 0x00 → 命中，[2:8] 即该扇区密钥
+#          0x02 → 认证长度有误    0x04 → 认证地址有误    0x11 → 卡片缺失
+#          其它 → 本批未命中
+KEY_CACHE_MAX = 500          # 小程序单批上限（对应 G() 里的 500）
+
+
+def build_key_cache_payload(keys) -> bytes:
+    """0x40 密钥缓存：把候选密钥灌进设备内部表（对应小程序 G()）。"""
+    items: List[bytes] = []
+    for k in (keys or []):
+        try:
+            items.append(norm_fixed_bytes(k, 6, "密钥"))
+        except NfcError:
+            continue
+    if not items:
+        raise NfcError("密钥缓存内容为空", 15)
+    if len(items) > KEY_CACHE_MAX:
+        raise NfcError(f"单批密钥不能超过 {KEY_CACHE_MAX} 把（当前 {len(items)}）", 15)
+    n = len(items)
+    return (bytes([CMD.KEY_CACHE, 0x00, 0x01, (n >> 8) & 0xFF, n & 0xFF])
+            + b"".join(items))
+
+
+def build_batch_find_payload(key_off: int = 1, count: int = 1,
+                             key_type: int = 0, block: int = 0) -> bytes:
+    """0x41 批量搜索：让设备在缓存表里自己试出该扇区密钥（对应小程序 w()）。"""
+    off = max(0, min(int(key_off or 0), 0xFFFF))
+    cnt = max(1, min(int(count or 1), 0xFFFF))
+    kt_byte = 1 if (int(key_type) & 1) == 0 else 0      # 1 = KEY A（与 0x06/0x09 相反）
+    return bytes([CMD.BATCH_FIND, (off >> 8) & 0xFF, off & 0xFF,
+                  (cnt >> 8) & 0xFF, cnt & 0xFF, kt_byte, int(block) & 0xFF])
+
+
+BATCH_FIND_REASONS = {0x02: "认证长度有误", 0x04: "认证地址有误", 0x11: "卡片缺失"}
+
+
+def parse_batch_find_result(d: bytes) -> dict:
+    """解析 0x41 应答：[0x41, status, key0..key5]；status==0 时 [2:8] 是命中的密钥。"""
+    if not d:
+        raise NfcError("批量搜索空响应")
+    if d[0] != CMD.BATCH_FIND:
+        raise NfcError(f"批量搜索响应命令码不符：0x{d[0]:02X}")
+    code = int(d[1]) if len(d) > 1 else 0x02
+    if code == 0 and len(d) >= 8:
+        return {"ok": True, "key": fmt_hex(d[2:8], sep=""), "status": 0,
+                "detail": "设备端命中密钥"}
+    return {"ok": False, "key": "", "status": code,
+            "detail": BATCH_FIND_REASONS.get(code, "本批候选密钥未命中")}
 
 
 # ---- 0x38 自动识别卡片（单字节）---------------------------------------

@@ -532,8 +532,10 @@
             </label>
           </div>
           <div class="row wrap mt">
-            <button class="btn primary" id="btnWxToken">从微信小程序自动获取 token</button>
-            <span class="hint grow" id="wxTokenOut">微信已登录且「宜新 NFC Reader Tool」小程序已打开时，点这里自动抓取并填入云端 token。</span>
+            <button class="btn primary" id="btnWxToken">自动获取 token（打开微信小程序）</button>
+            <button class="btn ghost" id="btnVerifyToken">验证 token</button>
+            <span class="badge" id="tokenBadge">未校验</span>
+            <span class="hint grow" id="wxTokenOut">启动时会自动校验 token；失效后点这里会打开微信并拉起「宜新 NFC Reader Tool」，抓到登录态自动填入（需微信已登录）。</span>
           </div>
           <p class="hint">token 来源：微信小程序「宜新 NFC Reader Tool」登录账号后，请求头 NICETHEME 的值（登录态、会过期，需自行获取粘贴）。密钥库接口用的厂商内置凭据已随软件内置，无需填写；未填 token 时云端会跳过并自动降级本地 mfkey32。</p>
 
@@ -625,6 +627,9 @@
             </label>
             <label class="check">
               <input type="checkbox" id="setCrackBatch"><span>候选密钥批量认证（更快；设备漏应答会自动回退串行）</span>
+            </label>
+            <label class="check">
+              <input type="checkbox" id="setCrackDevice"><span>设备端批量验证（0x40 灌密钥表 + 0x41 设备自试，候选多时最快）</span>
             </label>
             <label class="check">
               <input type="checkbox" id="setAutoCrack"><span>寻卡后自动后台破解</span>
