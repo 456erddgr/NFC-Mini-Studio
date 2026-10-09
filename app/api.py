@@ -2,7 +2,6 @@
 """暴露给前端 HTML 的 JS API（pywebview js_api）。
 
 v2.0.0 变更：
-  * 新增 USB（串口）连接通道：scan_ports / probe_serial / connect_usb；
   * 寻卡自动识卡（IC / ID / UID / 7 字节 UID）并自动在**后台**发起破解级联；
   * 读卡、写卡、复制、粘贴、破解全部推送带百分比的实时进度事件；
   * 写卡走后端自适应帧格式 + 回读校验，并把实际命中的格式回报给界面。
@@ -31,7 +30,6 @@ from .protocol import (DEFAULT_KEY, ERR, PHONE_WRITE_MODES, NfcError, WRITE_FORM
                        write_mode_table)
 from .store import CardBox, Settings
 from .keybox import KeyBox
-from .transport import WIRED_CANDIDATES
 
 IMG_SUFFIX = {".jpg", ".jpeg", ".png", ".webp", ".bmp", ".gif"}
 
@@ -158,6 +156,132 @@ class Api:
             return self._cracked_keys[sector], kt, sector
         return self.settings.data.get("default_key", "FFFFFFFFFFFF"), kt, None
 
+    # ---- 统一密钥解析（读/写卡同源入口）--------------------------------
+    def _history_keys(self, uid: str = "") -> list:
+        """本卡在读卡历史库里记录过的全部密钥（大写 12 位 hex）。"""
+        uid = str(uid or (self._last_card or {}).get("uid") or "").replace(" ", "").upper()
+        if not uid:
+            return []
+        out: list = []
+        try:
+            for row in self.keybox.list("history"):
+                if str(row.get("uid") or "").replace(" ", "").upper() != uid:
+                    continue
+                for k in (row.get("keys") or []):
+                    if k:
+                        out.append(str(k).replace(" ", "").upper())
+        except Exception:                              # noqa: BLE001
+            pass
+        return out
+
+    def _key_candidates(self, key_hex: str = "") -> list:
+        """按优先级汇总候选密钥：会话破解 → 本卡历史库 → 用户/公共库 → 界面输入 → 默认。
+
+        返回 [(来源标签, 12 位 hex), ...]，已去重且保持顺序。
+        """
+        uid = str((self._last_card or {}).get("uid") or "")
+        src: list = [("会话破解", str(k)) for k in self._cracked_keys.values()]
+        src += [("读卡历史库", k) for k in self._history_keys(uid)]
+        try:
+            for lib in ("user", "public"):
+                for row in self.keybox.list(lib):
+                    k = str(row.get("key") or "")
+                    if k:
+                        src.append((f"密码库·{'用户' if lib == 'user' else '公共'}", k))
+        except Exception:                              # noqa: BLE001
+            pass
+        if key_hex:
+            src.append(("界面输入", str(key_hex)))
+        src.append(("默认密钥",
+                    str(self.settings.data.get("default_key", "FFFFFFFFFFFF"))))
+        seen, uniq = set(), []
+        for tag, k in src:
+            c = str(k).replace(" ", "").replace(":", "").replace("-", "").upper()
+            if c and c not in seen:
+                seen.add(c)
+                uniq.append((tag, c))
+        return uniq
+
+    def _prefill_history_key(self, uid: str = "") -> str:
+        """寻卡后把本卡历史库里「真机确实能认证通过」的密钥先回填会话缓存。"""
+        if not self.device.connected:
+            return ""
+        for text in self._history_keys(uid):
+            try:
+                kb = hex_to_bytes(text)
+            except Exception:                          # noqa: BLE001
+                continue
+            if len(kb) != 6:
+                continue
+            for kt in (0, 1):
+                try:
+                    self.device.auth(0, kb, kt)
+                except Exception:                      # noqa: BLE001
+                    continue
+                self._cracked_keys[0] = text
+                self._on_device_log(
+                    "ok", f"读卡历史库已有该卡密钥 {text}，直接复用（无需重新破解）")
+                return text
+        return ""
+
+    @staticmethod
+    def _dedup_candidates(items, exclude=None) -> list:
+        """把 [(来源标签, 密钥)] 规整成 12 位大写 hex、去重并剔除已试过的密钥。"""
+        skip = {str(x).replace(" ", "").upper() for x in (exclude or set())}
+        seen, out = set(), []
+        for tag, k in items or []:
+            c = str(k).replace(" ", "").replace(":", "").replace("-", "").upper()
+            if len(c) < 12:
+                continue
+            c = c[-12:]
+            if c in seen or c in skip:
+                continue
+            seen.add(c)
+            out.append((tag, c))
+        return out
+
+    def _resolve_key(self, key_hex: str = "", key_type: int = -1,
+                     block: int = 0, prefer: str = "") -> tuple:
+        """解析出一把「真机确实能认证通过」的密钥（读/写卡统一入口）。
+
+        修复点：旧逻辑「界面输入框有值就只看界面密钥」，导致整卡读取拿默认
+        FFFFFFFFFFFFFF 去认证 16 个扇区 → 每块都回 08（密钥认证失败）→ 0/64。
+        现在按 会话破解 → 本卡历史库 → 密码库 → 界面输入 → 默认 的顺序逐把用
+        device.auth() 实测，第一把能过的就用它，并把结果回填会话缓存；
+        全都不通时明确报错，而不是静默把 64 块读成失败。
+
+        返回 (key: bytes, key_type: int, source: str)
+        """
+        cands = self._key_candidates(key_hex)
+        if prefer:
+            pref = str(prefer).replace(" ", "").upper()
+            cands.sort(key=lambda item: 0 if item[1] == pref else 1)
+        pref_kt = int(key_type) if int(key_type) >= 0 else \
+            int(self.settings.data.get("default_key_type", 0))
+        errors: list = []
+        for tag, text in cands:
+            try:
+                kb = hex_to_bytes(text)
+            except Exception:                          # noqa: BLE001
+                continue
+            if len(kb) != 6:
+                continue
+            for kt in ([pref_kt] if int(key_type) >= 0 else [pref_kt, 1 - pref_kt]):
+                try:
+                    self.device.auth(int(block), kb, kt)
+                except Exception as exc:                # noqa: BLE001
+                    errors.append(f"{text}({'KEY B' if kt else 'KEY A'}): {exc}")
+                    continue
+                self._cracked_keys.setdefault(int(block) // 4, text)
+                self._on_device_log(
+                    "info", f"密钥就绪：{text}（{'KEY B' if kt else 'KEY A'}，"
+                            f"来源：{tag}，设备认证通过）")
+                return kb, kt, tag
+        raise NfcError(
+            "本卡没有已知密钥能通过设备认证：请先执行「破解 / 批量验证」取得该卡密钥，"
+            "或在「默认密钥」里填入真实密钥后重试"
+            + (f"（已试 {len(errors)} 次；最后一条：{errors[-1]}）" if errors else ""), 8)
+
     # ------------------------------------------------------------ 应用信息
     def app_info(self) -> dict:
         return self._ok({
@@ -188,62 +312,16 @@ class Api:
             "lock_cmds": {"ufuid_lock": "0x17", "lock_card": "0x23",
                           "check_card_no": "0x24"},
             "check_card_no_cmd": "0x24",
-            "baud_choices": [9600, 19200, 38400, 57600, 115200, 230400, 460800, 921600],
-            "wired_candidates": [{"vid": v, "pid": p, "label": l}
-                                 for v, p, l in WIRED_CANDIDATES],
-            "wired_ep_size": 64,
         })
 
     # ------------------------------------------------------------ 设备：连接
     def scan(self, timeout: float = 6.0) -> dict:
         return self._guard(lambda: self.device.scan(float(timeout)))
 
-    def scan_ports(self) -> dict:
-        return self._guard(self.device.list_ports)
-
-    def probe_serial(self, port: str, baud: int = 115200) -> dict:
-        return self._guard(lambda: self.device.probe_serial(str(port), int(baud)))
-
     def connect(self, mac: str) -> dict:
         def work():
             info = self.device.connect(mac)
-            self.settings.update({"last_mac": mac, "connection_mode": "ble"})
             return info
-        return self._guard(work)
-
-    def connect_usb(self, port: str, baud: int = 115200) -> dict:
-        def work():
-            info = self.device.connect_serial(str(port), int(baud))
-            self.settings.update({"last_port": str(port), "baud": int(baud),
-                                  "connection_mode": "usb"})
-            return info
-        return self._guard(work)
-
-    # ---- USB 有线（libusb 厂商自定义类 bulk 通道，v2.1 新增）----
-    def wired_devices(self) -> dict:
-        """枚举可用的 USB 有线读卡器（与串口枚举并列，互不影响）。"""
-        return self._guard(self.device.list_wired)
-
-    def probe_wired(self, vid: int = 0, pid: int = 0, serial: str = "") -> dict:
-        return self._guard(lambda: self.device.probe_wired(int(vid or 0), int(pid or 0),
-                                                           str(serial or "")))
-
-    def connect_wired(self, vid: int = 0, pid: int = 0, serial: str = "") -> dict:
-        def work():
-            info = self.device.connect_wired(int(vid or 0), int(pid or 0), str(serial or ""))
-            self.settings.update({"connection_mode": "wired", "wired_vid": int(vid or 0),
-                                  "wired_pid": int(pid or 0), "wired_serial": str(serial or "")})
-            return info
-        return self._guard(work)
-
-    def wired_send_frame(self, frame_hex: str, wait: float = 1.5) -> dict:
-        return self._guard(lambda: self.device.wired_send_raw(str(frame_hex), float(wait)))
-
-    def wired_log(self, limit: int = 120, clear: bool = False) -> dict:
-        def work():
-            items = self.device.wired_raw_log(int(limit), bool(clear))
-            snap = self.device.snapshot().get("wired", {})
-            return {"items": items, "state": snap}
         return self._guard(work)
 
     def disconnect(self) -> dict:
@@ -285,6 +363,9 @@ class Api:
                 "ts": time.strftime("%Y-%m-%d %H:%M:%S"),
             }
             self._save_cache()
+            # 同 UID 的历史密钥先回填：后台破解是异步的（云端 keygen + 逐把验证，
+            # 数十秒级），回填后「寻卡 → 读取整卡」不必等破解完成也能用上正确密钥。
+            self._prefill_history_key(info.get("uid", ""))
             self._on_device_log(
                 "ok", f"寻卡成功：{info.get('class_label')} / {info.get('card_type')} / "
                       f"UID {info.get('uid')} / SAK {info.get('sak')}"
@@ -313,7 +394,8 @@ class Api:
             return ""
         if not self.device.connected:
             return ""
-        sector = int(self.settings.data.get("crack_sector", 0))
+        # -1 = 全卡（对齐官方：把 16 个扇区都解出来），其余为单扇区模式
+        sector = int(self.settings.data.get("crack_sector", -1))
         # 非完整KEY读卡（对齐小程序 NON_FULL_KEY_READ）：先用设备采集原始密文，
         # 采集结果留在 device.last_nonces，供云端算法取用；采集失败再回落固件级联。
         if self.settings.data.get("non_full_key_read"):
@@ -351,19 +433,15 @@ class Api:
     def write_block(self, block: int, data_hex: str, key_hex: str = "",
                     key_type: int = 0, verify: bool = True) -> dict:
         def work():
-            if key_hex:
-                key = key_hex
-            else:
-                key, _kt, _s = self._best_key()
+            key, _kt, _src = self._resolve_key(key_hex, key_type, block=int(block))
             started = time.time()
             res = self.device.write_block(int(block), hex_to_bytes(data_hex),
-                                          hex_to_bytes(key) if isinstance(key, str) else key,
-                                          int(key_type), verify=bool(verify))
+                                          key, _kt, verify=bool(verify))
             res["elapsed"] = round(time.time() - started, 2)
             self._on_device_log(
                 "ok", f"第 {block} 块写入成功（帧格式 {res['format']}，"
                       f"回读{'一致' if res.get('verified') else '未校验'}，"
-                      f"耗时 {res['elapsed']}s）")
+                      f"密钥来源 {_src}，耗时 {res['elapsed']}s）")
             return res
         return self._guard(work)
 
@@ -371,17 +449,12 @@ class Api:
                            key_type: int = 0, verify: bool = True) -> dict:
         """写单块并回传写帧 / 读帧原文，方便对着日志定位固件协议差异。"""
         def work():
-            if key_hex:
-                key = key_hex
-            else:
-                key, _kt, _s = self._best_key()
+            key, _kt, _src = self._resolve_key(key_hex, key_type, block=int(block))
             res = self.device.write_block_verbose(
-                int(block), hex_to_bytes(data_hex),
-                hex_to_bytes(key) if isinstance(key, str) else key,
-                int(key_type), verify=bool(verify))
+                int(block), hex_to_bytes(data_hex), key, _kt, verify=bool(verify))
             _bytes = res["write"]
             self._on_device_log("ok", f"第 {block} 块写块诊断：格式 {_bytes['format']}、"
-                                      f"回读 {_bytes.get('read_back', '—')}")
+                                      f"回读 {_bytes.get('read_back', '—')}、密钥来源 {_src}")
             return res
         return self._guard(work)
 
@@ -391,21 +464,20 @@ class Api:
             self._progress_push(job, done, total, f"读取第 {block} 块", block=block)
 
         def work():
-            if key_hex:
-                key = hex_to_bytes(key_hex)
-            else:
-                best, _kt, _s = self._best_key()
-                key = hex_to_bytes(best) if isinstance(best, str) else best
-            kt = int(key_type) if int(key_type) >= 0 else \
-                int(self.settings.data.get("default_key_type", 0))
+            # 统一密钥解析：会话破解 → 本卡历史库 → 密码库 → 界面输入 → 默认，
+            # 逐把真机认证，避免旧的「界面默认密钥覆盖破解结果」导致 0/64。
+            key, kt, src = self._resolve_key(key_hex, key_type, block=0)
             started = time.time()
             res = self.device.dump_card(key, kt, bool(include_trailers),
                                         sector_keys=dict(self._cracked_keys),
                                         progress=progress)
             res["elapsed"] = round(time.time() - started, 2)
+            res["key_source"] = src
+            res["key_used"] = key.hex().upper()
             self._on_device_log(
                 "ok", f"整卡读取完成：{res['ok_count']}/{res['total']} 块，"
-                      f"失败 {len(res['errors'])} 块，耗时 {res['elapsed']}s")
+                      f"失败 {len(res['errors'])} 块，耗时 {res['elapsed']}s"
+                      f"（密钥 {res['key_used']} · 来源 {src}）")
             return res
         return self._guard(work)
 
@@ -478,6 +550,189 @@ class Api:
                              "nonces": res.get("nonces", 0)})
         self._on_device_log("err", f"破解未成功：{res.get('summary', '')}")
 
+    # ---- 全卡破解（sector = -1）----------------------------------------
+    def _crack_all_sectors(self, mode: str = MODE_CLOUD,
+                           timeout: float = 25.0, uid: str = "",
+                           progress: Optional[Callable[[int, str], None]] = None,
+                           cancelled: Optional[Callable[[], bool]] = None) -> dict:
+        """全卡破解（对齐官方）：候选密钥全表 → 逐扇区批量验证（命中即停）。
+
+        之所以要这样：老实现只按 settings.crack_sector（默认 0）解 0 扇区，
+        和官方"把整卡 16 个扇区都解出来"的行为不一致 —— 用户看到的就是
+        "只破解了 0 扇区"。这里改为：先把会话/历史/密码库/云端 keygen 的候选
+        密钥汇总成一张表，再逐扇区用 device.auth() 实测，命中即记，
+        并把已经命中的密钥优先复用到后续扇区（同一张卡通常同一把密钥开全部扇区）。
+        """
+        def emit(pct: int, msg: str) -> None:
+            if progress:
+                try:
+                    progress(int(pct), msg)
+                except Exception:                      # noqa: BLE001
+                    pass
+
+        def stopped() -> bool:
+            return bool(cancelled and cancelled())
+
+        uid = str(uid or (self._last_card or {}).get("uid") or "").replace(" ", "").upper()
+        if not uid:
+            raise NfcError("未读到卡片 UID，请先把卡放到感应区并寻卡")
+
+        total_sectors = 16
+        started = time.time()
+        attempts: list = []
+        found: dict = {}
+        base_kt = int(self.settings.data.get("default_key_type", 0))
+
+        # 候选分两批，按"先便宜后昂贵"的顺序：本地 → 云端 keygen。
+        # 默认密钥卡 / 空白卡用本地候选几秒就能解完整卡，不必先白等十几秒云端往返。
+        local = self._dedup_candidates(self._key_candidates(""))
+        if not local:
+            raise NfcError("没有可用候选密钥：请先执行云端破解或手动添加密钥")
+        self._on_device_log("info", f"全卡破解：本地候选密钥 {len(local)} 把")
+
+        known: list = []          # 已验证可用的 (key, key_type)，优先复用到其他扇区
+        # 时间预算：16 个扇区 × 500+ 候选逐把认证是"几分钟"级的重活，
+        # 必须给出上限，超时就带着已解出的部分结果收工，不能无限期卡住界面。
+        budget = float(self.settings.data.get("crack_all_budget", 300) or 300)
+        deadline = started + max(30.0, budget)
+        unsolved = set(range(total_sectors))
+        kt_order = [base_kt, 1 - base_kt]
+        candidates_total = len(local)
+
+        def _try(sector: int, key_hex: str, kt: int) -> bool:
+            try:
+                kb = hex_to_bytes(key_hex)
+            except Exception:                          # noqa: BLE001
+                return False
+            if len(kb) != 6:
+                return False
+            try:
+                self.device.auth(sector * 4, kb, kt)
+            except Exception:                          # noqa: BLE001
+                return False
+            found[sector] = key_hex
+            self._cracked_keys[sector] = key_hex
+            unsolved.discard(sector)
+            return True
+
+        def _sweep_known() -> None:
+            """新拿到一把能用的钥匙后，立刻复扫所有还没解的扇区。"""
+            for key_hex, kt in list(known):
+                for s in sorted(unsolved):
+                    if stopped() or time.time() > deadline:
+                        return
+                    if _try(s, key_hex, kt):
+                        self._on_device_log(
+                            "ok", f"扇区 {s} 复用已确认密钥 {key_hex}"
+                                  f"（{'KEY B' if kt else 'KEY A'}）")
+
+        def run_pass(keys: list) -> None:
+            """对未解扇区做一轮验证：先复用已知密钥，再按 KEY A / KEY B 顺序扫候选表。"""
+            tried = {"n": 0}
+            for sector in sorted(unsolved):
+                if stopped() or time.time() > deadline or not unsolved:
+                    return
+                emit(int(len(found) / total_sectors * 100),
+                     f"验证扇区 {sector}（已解 {len(found)}/{total_sectors}）")
+                hit = ""
+                for key_hex, kt in list(known):        # ① 已知可用密钥优先
+                    if _try(sector, key_hex, kt):
+                        hit = key_hex
+                        self._on_device_log(
+                            "ok", f"扇区 {sector} 复用密钥 {key_hex}"
+                                  f"（{'KEY B' if kt else 'KEY A'}）")
+                        break
+                if not hit:
+                    for kt in kt_order:                # ② 候选全表（先 A 全表，再 B 全表）
+                        for tag, text in keys:
+                            if stopped() or time.time() > deadline:
+                                break
+                            tried["n"] += 1
+                            if tried["n"] % 20 == 0:
+                                # 单次认证约 0.2s，长表扫描期间也要给进度，不然像卡死
+                                emit(int(len(found) / total_sectors * 100),
+                                     f"扇区 {sector} · {'KEY B' if kt else 'KEY A'} · "
+                                     f"已试 {tried['n']} 把 / 候选 {len(keys)} 把")
+                            if _try(sector, text, kt):
+                                hit = text
+                                if (text, kt) not in known:
+                                    known.append((text, kt))
+                                self._on_device_log(
+                                    "ok", f"扇区 {sector} 密钥 {text}"
+                                          f"（{'KEY B' if kt else 'KEY A'}，来源：{tag}）")
+                                attempts.append({"method": tag, "label": f"扇区 {sector}",
+                                                 "ok": True, "detail": text})
+                                break
+                        if hit:
+                            break
+                if hit:
+                    _sweep_known()
+                else:
+                    attempts.append({"method": "miss", "label": f"扇区 {sector}",
+                                     "ok": False, "detail": "本轮候选密钥均未通过认证"})
+
+        # ---- 第 1 轮：本地候选（秒级覆盖绝大多数空白卡 / 默认密钥卡）----
+        run_pass(local)
+
+        # ---- 第 2 轮：仍有扇区未解，才查官方云端密钥库（几百把候选，慢但覆盖面广）----
+        cloud_note = ""
+        if unsolved and not stopped() and time.time() < deadline:
+            emit(int(len(found) / total_sectors * 100), "本地候选未覆盖全部扇区，查询官方云端密钥库…")
+            try:
+                kg = cloud_keygen_lookup(uid, timeout=max(8.0, float(timeout)))
+                cloud = self._dedup_candidates(
+                    [("云端密钥库", k) for k in (kg.get("keys") or [])],
+                    exclude={k for k, _ in known})
+                if cloud:
+                    candidates_total += len(cloud)
+                    cloud_note = f"云端密钥库返回 {len(cloud)} 把候选密钥"
+                    self._on_device_log(
+                        "ok", cloud_note + f"，继续验证剩余 {len(unsolved)} 个扇区")
+                    run_pass(cloud)
+                else:
+                    cloud_note = "云端密钥库没有新增候选密钥"
+                    self._on_device_log("warn", cloud_note)
+            except Exception as exc:                   # noqa: BLE001
+                cloud_note = f"云端密钥库不可用（{exc}）"
+                self._on_device_log("warn", cloud_note + "，仅用本地候选密钥验证")
+
+        if unsolved and (stopped() or time.time() > deadline):
+            self._on_device_log(
+                "warn", f"全卡验证已达时间上限（{budget:.0f}s），"
+                        f"剩余扇区 {sorted(unsolved)} 未解，可稍后重试")
+
+        keys_sorted = sorted(set(found.values()))
+        ok = bool(found)
+        if ok:
+            try:
+                self.keybox.record_history(uid, keys_sorted,
+                                           card_type=(self._last_card or {}).get("card_type", ""),
+                                           note="全卡破解命中")
+            except Exception:                          # noqa: BLE001
+                pass
+            if self._last_card_id:
+                try:
+                    self.cardbox.set_keys(
+                        self._last_card_id,
+                        {str(k): v for k, v in found.items()},
+                        meta={"method": "all_sectors", "elapsed": round(time.time() - started, 2)})
+                except Exception:                      # noqa: BLE001
+                    pass
+        emit(100, f"全卡验证结束：{len(found)}/{total_sectors} 个扇区命中")
+        return {
+            "ok": ok, "all_sectors": True, "method": "all_sectors", "label": "全卡破解",
+            "sector": -1, "sector_keys": {str(k): v for k, v in sorted(found.items())},
+            "keys": keys_sorted, "key": keys_sorted[0] if keys_sorted else "",
+            "sectors_hit": len(found), "sectors_total": total_sectors,
+            "candidates": candidates_total, "attempts": attempts,
+            "elapsed": round(time.time() - started, 2), "nonces": 0, "mode": mode,
+            "detail": f"全卡破解：{len(found)}/{total_sectors} 扇区命中，"
+                      f"{len(keys_sorted)} 把不同密钥（候选 {candidates_total} 把）",
+            "cloud_note": cloud_note,
+            "summary": (f"全卡破解完成：{len(found)}/{total_sectors} 个扇区命中"
+                        if ok else "全卡破解未命中任何扇区"),
+        }
+
     def _start_crack_job(self, sector: int = 0, methods: Optional[list] = None,
                          timeout: Optional[float] = None, mode: Optional[str] = None,
                          nonces: Any = None) -> str:
@@ -520,12 +775,53 @@ class Api:
                 pct = int(round(i / n * 100)) if n else 0
                 progress(pct, msg)
 
+            def _verify_key(k: str) -> bool:
+                """把云端候选密钥拿到设备上真认证一次（KEY A 不通自动试 KEY B）。"""
+                try:
+                    kb = hex_to_bytes(k)
+                except Exception:                      # noqa: BLE001
+                    return False
+                if len(kb) != 6:
+                    return False
+                for _kt in (kt, 1 - kt):
+                    try:
+                        self.device.auth(int(sector) * 4, kb, _kt)
+                        self._cracked_keys[int(sector)] = str(k).upper()
+                        return True
+                    except Exception:                  # noqa: BLE001
+                        continue
+                return False
+
+            # 0) 全卡模式（sector < 0）：候选密钥全表 → 逐扇区批量验证，
+            #    与官方"整卡所有扇区都解出来"的行为一致。
+            if sector < 0:
+                res = self._crack_all_sectors(
+                    mode=mode, timeout=timeout, uid=(self._last_card or {}).get("uid", ""),
+                    progress=lambda pct, msg: progress(int(pct), msg), cancelled=cancelled)
+                if res.get("ok"):
+                    self._crack_result = res
+                    self._push("crack", {
+                        "stage": "done", "ok": True, "sector": -1,
+                        "key": res.get("key", ""), "keys": res.get("keys") or [],
+                        "method": "all_sectors", "label": "全卡破解",
+                        "elapsed": res.get("elapsed", 0), "attempts": res.get("attempts", []),
+                        "sector_keys": res.get("sector_keys") or {},
+                        "detail": res.get("detail", ""), "mode": mode, "nonces": 0,
+                    })
+                    self._on_device_log(
+                        "ok", f"全卡破解成功：{res['sectors_hit']}/{res['sectors_total']} "
+                              f"个扇区命中，密钥 {', '.join(res['keys'])}")
+                else:
+                    self._finish_crack_fail(-1, res)
+                return res
+
             # 1) 云端解算 → 本地离线 → 自动降级（crack_engine 内部完成）
             started = time.time()
             res = self._crack_engine.solve(
                 mode=mode, frames=frames, sector=sector,
                 progress=lambda pct, msg: progress(int(pct), msg),
                 should_stop=cancelled,
+                verify=_verify_key,
                 on_engine=lambda engine, ok, detail: on_attempt(
                     engine, ok, round(time.time() - started, 2), detail),
                 allow_device_fallback=True)
@@ -647,17 +943,14 @@ class Api:
         """A2 · 按档位写单块（fast=0x16 极速 / normal=0x18 / keyed=0x08 带密钥类型）。"""
         def work():
             mode_key, conf = resolve_write_mode(mode)
-            if key_hex:
-                key = hex_to_bytes(key_hex)
-            else:
-                best, _kt, _s = self._best_key()
-                key = hex_to_bytes(best) if isinstance(best, str) else best
+            key, kt, _src = self._resolve_key(key_hex, key_type, block=int(block))
             res = self.device.write_block_mode(
-                int(block), hex_to_bytes(data_hex), mode_key, key, int(key_type),
+                int(block), hex_to_bytes(data_hex), mode_key, key, kt,
                 verify=bool(verify))
             self._on_device_log(
                 "ok", f"{conf['label']} 完成（{res['cmd']} · 第 {block} 块）："
-                      f"{res.get('verify_text') or '未校验'}，耗时 {res['elapsed']}s")
+                      f"{res.get('verify_text') or '未校验'}，密钥来源 {_src}，"
+                      f"耗时 {res['elapsed']}s")
             return res
         return self._guard(work)
 
@@ -672,13 +965,7 @@ class Api:
         """
         def work():
             mode_key, conf = resolve_write_mode(mode)
-            if key_hex:
-                key = hex_to_bytes(key_hex)
-            else:
-                best, _kt, _s = self._best_key()
-                key = hex_to_bytes(best) if isinstance(best, str) else best
-            kt = int(key_type) if int(key_type) >= 0 else \
-                int(self.settings.data.get("default_key_type", 0))
+            key, kt, _src = self._resolve_key(key_hex, key_type, block=0)
             started = time.time()
             self._progress_push(job, 0, 1, f"准备{conf['label']}…")
             res = self.device.write_card(
@@ -729,13 +1016,7 @@ class Api:
             if mode_key not in PHONE_WRITE_MODES:
                 raise NfcError(f"手机 / 手环 NFC 档位仅支持 "
                                f"{' / '.join(PHONE_WRITE_MODES)}，当前 {mode}", 15)
-            if key_hex:
-                key = hex_to_bytes(key_hex)
-            else:
-                best, _kt, _s = self._best_key()
-                key = hex_to_bytes(best) if isinstance(best, str) else best
-            kt = int(key_type) if int(key_type) >= 0 else \
-                int(self.settings.data.get("default_key_type", 0))
+            key, kt, _src = self._resolve_key(key_hex, key_type, block=0)
             started = time.time()
             self._progress_push(job, 0, 1, "准备手机 / 手环 NFC 写录…")
             res = self.device.write_phone_nfc(
@@ -932,7 +1213,10 @@ class Api:
                 if handle:
                     card["crack_job"] = handle
 
-            best, kt, _sector = self._best_key()
+            # 后台破解是异步的，此刻 _best_key() 多半还是默认密钥 →
+            # 用统一解析挑一把真能通过认证的密钥再 dump，否则又是 0/64。
+            _kb, kt, _src = self._resolve_key("", -1, block=0)
+            best = _kb.hex().upper()
 
             def progress(done: int, total: int, block: int) -> None:
                 self._progress_push("copy", done, total, f"复制中 · 第 {block} 块", block=block)
@@ -977,12 +1261,7 @@ class Api:
             card = self.cardbox.get(card_id)
             if not card:
                 raise NfcError("卡夹中不存在该卡片")
-            if key_hex:
-                key = hex_to_bytes(key_hex)
-            else:
-                best, _kt, _s = self._best_key()
-                key = hex_to_bytes(best) if isinstance(best, str) else best
-            kt = int(self.settings.data.get("default_key_type", 0))
+            key, kt, _src = self._resolve_key(key_hex, -1, block=0)
 
             blocks = sorted(((int(k), v) for k, v in (card.get("blocks") or {}).items()
                              if v), key=lambda x: x[0])
@@ -1027,8 +1306,8 @@ class Api:
         def work():
             if not self.device.connected:
                 raise NfcError("请先连接读卡器")
-            key = (key_hex or "").strip() or self._best_key()[0]
-            kb = (hex_to_bytes(key)[:6]).ljust(6, b"\x00")
+            kb, key_type, key_src = self._resolve_key((key_hex or "").strip(),
+                                                      int(key_type), block=0)
             default_trailer = bytes.fromhex("FFFFFFFFFFFF" "FF078069" "FFFFFFFFFFFF")
             written, failed = 0, []
             total = 64
@@ -1042,8 +1321,10 @@ class Api:
                 self._progress_push("format", block + 1, total,
                                     f"格式化块 {block}", block=block)
             self._on_device_log("ok" if not failed else "warn",
-                                f"格式化完成：成功 {written}/{total} 块，失败 {len(failed)}")
-            return {"written": written, "failed": failed, "total": total, "key": key.upper()}
+                                f"格式化完成：成功 {written}/{total} 块，失败 {len(failed)}"
+                                f"（密钥 {kb.hex().upper()} · 来源 {key_src}）")
+            return {"written": written, "failed": failed, "total": total,
+                    "key": kb.hex().upper(), "key_source": key_src}
         return self._guard(work)
     def sniff_run(self, uid: str = "", sak: int = 0x08) -> dict:
         """侦测读卡（0x34 → 0x35 → 0x36），对齐小程序「侦测读卡」页。
@@ -1209,6 +1490,18 @@ class Api:
 
             algo = (algorithm or "auto").strip().lower()
 
+            # 全卡模式（sector < 0）：与官方一致地把 16 个扇区全部解出来
+            if int(sector) < 0:
+                self._on_device_log("info", "全卡破解：逐扇区验证候选密钥（16 个扇区）…")
+                res = self._crack_all_sectors(
+                    mode=self._crack_engine.mode(None),
+                    timeout=float(self.settings.data.get("crack_timeout", 25) or 25),
+                    uid=uid,
+                    progress=lambda pct, msg: self._progress_push("crack", pct, 100, msg))
+                res["source"] = res.get("method", "all_sectors")
+                res["algorithm"] = algo
+                return res
+
             # 手工指定密钥优先
             if key_hex:
                 kb = hex_to_bytes(key_hex)[:6].ljust(6, b"\x00")
@@ -1329,13 +1622,15 @@ class Api:
             res = self.device.batch_verify(key_list, block=block, key_type=key_type)
             if res.get("hits"):
                 best = res["hits"][0]["key"]
-                self._cracked_keys[int(block)] = best
+                # 字典键语义是「扇区号」，这里原先误用了传入的块号，导致
+                # dump 取用密钥时错位（扇区 1 的密钥被记到键 4）。
+                self._cracked_keys[int(block) // 4] = best
                 uid = (self._last_card or {}).get("uid", "")
                 self.keybox.record_history(uid, [h["key"] for h in res["hits"]],
                                            card_type=(self._last_card or {}).get("card_type", ""),
                                            note="批量验证命中")
                 self._on_device_log("ok", f"批量验证命中 {len(res['hits'])} 把，"
-                                          f"扇区 {block} 密钥 {best}")
+                                          f"扇区 {int(block) // 4}（块 {block}）密钥 {best}")
             else:
                 self._on_device_log("warn", f"批量验证未命中（共试 {res.get('tried', 0)} 把）")
             return dict(res, stats=self.keybox.stats())

@@ -8,7 +8,7 @@ from pathlib import Path
 
 APP_NAME = "NFCMiniStudio"
 APP_TITLE = "NFC Mini Studio"
-APP_VERSION = "2.2.0"
+APP_VERSION = "2.6.0"
 
 # 项目自 v2.0.0 起从 C 盘工作区迁移到 E:\NFCMiniStudio（见 README「项目位置」）
 DEFAULT_PROJECT_DIR = r"E:\NFCMiniStudio"

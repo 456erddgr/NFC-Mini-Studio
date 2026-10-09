@@ -85,7 +85,7 @@ VENDOR_STATUS_GEN3 = 202
 KEYGEN_POLL_INTERVAL = 1.2
 KEYGEN_POLL_TIMEOUT = 15.0
 CLOUD_FRAME_LIMIT = 4        # 单次云端解算最多提交的采集帧数（厂商接口一次一帧）
-CLOUD_VERIFY_LIMIT = 12      # 单张卡最多拿回设备验证的候选密钥数
+CLOUD_VERIFY_LIMIT = 0       # 单张卡拿回设备验证的候选密钥数上限；0 = 不限（全表逐把验证）
 
 # 官方 mfkey32v2 README 测试向量：同一张卡 sector0 KEYA = A0A1A2A3A4A5 的多组采集
 LOCAL_VECTORS: Tuple[Tuple[str, ...], ...] = (
@@ -770,8 +770,17 @@ def _vendor_request(url: str, headers: Dict[str, str], body: Optional[Dict[str, 
 
 
 def _pick_key(keys: Sequence[str], verify: Optional[Callable[[str], bool]] = None) -> str:
-    """从候选密钥里挑一把可用密钥：有 verify 回调就交给设备认证确认，否则取第一把。"""
-    for key in list(keys)[:CLOUD_VERIFY_LIMIT]:
+    """从候选密钥里挑一把可用密钥：有 verify 回调就交给设备认证确认，否则取第一把。
+
+    注意：旧实现硬性只验证前 12 把（CLOUD_VERIFY_LIMIT=12），而官方 keygen 对
+    一张普通卡会返回 500+ 把候选密钥 —— 真正能开门的那把常常排在 12 名之外，
+    表现就是"明明抓到 500 多把，却怎么都解不出来"。现在默认全表逐把验证
+    （单次设备认证 ~10ms，541 把约 6~8 秒），并把进度回报给上层。
+    """
+    items = list(keys)
+    if CLOUD_VERIFY_LIMIT and CLOUD_VERIFY_LIMIT > 0:
+        items = items[:CLOUD_VERIFY_LIMIT]
+    for key in items:
         if not verify:
             return str(key)
         try:
@@ -926,7 +935,25 @@ def cloud_solve(frames: Sequence[NonceFrame], endpoint: str, token: str = "",
         except EngineError as exc:
             note(f"官方云端密钥库未命中：{exc}")
         else:
-            chosen = _pick_key(kg.get("keys") or [], verify)
+            cands = list(kg.get("keys") or [])
+            note(f"官方云端密钥库命中 {len(cands)} 把候选密钥，逐把交设备认证…")
+            # 逐把验证必须可取消、有进度：固件单次认证约 0.2s，500+ 把要一两分钟，
+            # 期间没有任何回显会让用户以为程序卡死（只能强杀进程）。
+            chosen = ""
+            for idx, cand in enumerate(cands, start=1):
+                if should_stop and should_stop():
+                    raise EngineError("用户取消")
+                if not verify:
+                    chosen = str(cand)
+                    break
+                try:
+                    if verify(str(cand)):
+                        chosen = str(cand)
+                        break
+                except Exception:                        # noqa: BLE001
+                    continue
+                if idx % 20 == 0 or idx == len(cands):
+                    note(f"已验证 {idx}/{len(cands)} 把候选密钥…")
             if chosen:
                 return {"ok": True, "key": chosen, "keys": kg.get("keys") or [chosen],
                         "detail": f"官方云端密钥库命中：{kg.get('detail', '')}",

@@ -22,7 +22,7 @@ except Exception:  # pragma: no cover - 极端情况下的兜底（值与小程�
 
 DEFAULT_SETTINGS: Dict[str, Any] = {
     "wallpaper": "",            # 背景图文件名（位于 wallpapers 目录），空 = 内置动态渐变
-    "preset": "mono",           # 内置动态背景 id（默认石墨灰，macOS 中性色）
+    "preset": "sonoma",         # 内置动态背景 id（默认 macOS 索诺玛渐变）
     "glass": 26,                # 玻璃模糊强度 0-100（小模糊=清透折射，大模糊=发糊发白）
     "opacity": 4,               # 玻璃乳白度 0-60（越低越通透）
     "theme": "dark",            # dark / light
@@ -31,18 +31,12 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "auto_find": True,          # 连接后自动寻卡
     "last_mac": "",
     # ---- v2.0.0 新增 ----
-    "connection_mode": "ble",   # ble / usb，记住上次使用的连接方式
-    "last_port": "",            # 上次使用的串口（USB 连接）
-    "baud": 115200,             # 串口波特率
     "auto_crack": True,         # 寻卡后自动在后台级联破解
-    "crack_sector": 0,          # 自动破解的目标扇区
+    "crack_sector": -1,         # 自动破解的目标扇区；-1 = 全卡（全部 16 个扇区）
     "crack_timeout": 25,        # 单种破解方式的最长等待（秒）
+    "crack_all_budget": 300,    # 全卡破解（16 扇区逐把验证）的总时间上限（秒）
     "show_device": True,        # 设备页 3D 展示开关
     "device_spin": 18,          # 设备 3D 自转速度（度/秒，0 = 停转）
-    # ---- v2.1.0 新增：USB 有线（libusb bulk）通道 ----
-    "wired_vid": 0x0483,        # 上次连接的有线设备 VID
-    "wired_pid": 0x66AA,        # 上次连接的有线设备 PID
-    "wired_serial": "",         # 有线设备序列号（同型号多台时区分用）
     # ---- v2.2.0 新增：破解双模式（云端 / 本地 mfkey32）----
     # v2.2.0 修复：默认值直接预置成厂商官方云端 recovery 接口 + 小程序固定 token，
     # 做到开箱即用优先云端；用户可在设置页替换成自己小程序账号的地址 / token。
@@ -61,8 +55,18 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "sak88": False,                 # SAK88 开关（0x88 类卡特殊处理）
 }
 
+# 已下线功能的历史配置键：旧版本写过的"USB / 串口直连"参数。
+# 该功能官方文档并不存在（会把扩展坞误识别成读卡器），故彻底移除；
+# 这些键现在没有任何代码再读写，仅作一次性清理，避免老配置里继续残留。
+LEGACY_USB_KEYS = (
+    "connection_mode", "last_port", "baud",
+    "wired_vid", "wired_pid", "wired_serial",
+)
+
 # 观感参数版本：调过一次默认值就 +1，用于老配置的一次性迁移
-UI_REV = 6
+UI_REV = 7
+# 破解参数版本：全卡破解成为默认（-1），老配置里的 0 一次性迁到 -1
+CRACK_REV = 1
 # 云端协议版本：v2.2.0 修复后 +1；2 = 追加"清理旧版自动塞入的无效固定 token"
 CLOUD_REV = 2
 
@@ -112,14 +116,68 @@ class Settings(JsonStore):
         self._migrate()
 
     def _migrate(self) -> None:
+        self._drop_legacy_usb()
         self._migrate_ui()
         self._migrate_cloud()
+        self._migrate_crack()
+        self._migrate_macos()
+
+    def _migrate_macos(self) -> None:
+        """一次性把默认观感切到 macOS 风格（索诺玛渐变背景 + 深色）。
+
+        自定义壁纸文件仍保留在 %APPDATA%\\NFCMiniStudio\\wallpapers 里，
+        在「外观设置」点一下即可切回，不删除用户数据。
+        """
+        try:
+            rev = int(self._data.get("_mac_rev", 0))
+        except Exception:
+            rev = 0
+        if rev >= 2:
+            return
+        self._data["preset"] = "sonoma"
+        self._data["wallpaper"] = ""
+        self._data["theme"] = "dark"
+        self._data["_mac_rev"] = 2
+        self.save()
+
+    def _migrate_crack(self) -> None:
+        """破解扇区默认值迁移：老配置的 0（只解 0 扇区）→ -1（全卡）。
+
+        官方行为是把整卡所有扇区都解出来；只解 0 扇区是历史默认值造成的。
+        这里只做一次性迁移，之后用户想改回单扇区仍然可以在界面上选。
+        """
+        try:
+            rev = int(self._data.get("_crack_rev", 0))
+        except Exception:
+            rev = 0
+        if rev >= CRACK_REV:
+            return
+        try:
+            cur = int(self._data.get("crack_sector", -1))
+        except Exception:
+            cur = -1
+        if cur >= 0:
+            self._data["crack_sector"] = -1
+        self._data["_crack_rev"] = CRACK_REV
+        self.save()
+
+    def _drop_legacy_usb(self) -> None:
+        """一次性清理已下线的 USB / 串口直连配置键（当前无任何代码读写它们）。"""
+        removed = [k for k in LEGACY_USB_KEYS if k in self._data]
+        if removed:
+            for k in removed:
+                self._data.pop(k, None)
+            self.save()
 
     def _migrate_ui(self) -> None:
         """老配置里的观感参数若还是旧默认值（偏乳白 / 模糊偏弱），一次性迁到更通透的新默认。
 
         只迁移"恰好等于旧默认值"的项：用户手动调过的其它数值一律保留。
         """
+        # preset 的"去蓝"迁移必须无条件执行（用户可能已是最新 rev 但仍是 aurora）
+        if self._data.get("preset") in (None, "aurora"):
+            self._data["preset"] = DEFAULT_SETTINGS["preset"]
+            self.save()
         try:
             rev = int(self._data.get("_ui_rev", 0))
         except Exception:
@@ -129,7 +187,9 @@ class Settings(JsonStore):
         # 旧默认 opacity：26(初版) → 13(二版) → 6(三版) → 现在 4
         if self._data.get("opacity") in (None, 26, 13, 6):
             self._data["opacity"] = DEFAULT_SETTINGS["opacity"]
-        # 旧默认背景：极光（偏蓝）→ 石墨灰中性色
+        # 旧默认背景：极光（偏蓝）→ 石墨灰中性色。
+        # 注意：这里不受 _ui_rev 影响——用户即使已经是最新 rev，只要还停在
+        # 偏蓝的 aurora，也强制迁到中性 graphite，否则界面依旧发蓝。
         if self._data.get("preset") in (None, "aurora"):
             self._data["preset"] = DEFAULT_SETTINGS["preset"]
         # 旧默认 glass：70 → 90 → 现在 26

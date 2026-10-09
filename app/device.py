@@ -9,7 +9,7 @@
   2. 读卡顺带识别卡类型（IC/ID/UID/7字节 UID），并据此决定后续动作；
   3. 破解走后台线程池，不阻塞读卡；支持级联多方式与中途取消。
 
-连接通道由 transport 层提供（蓝牙 BLE / USB 串口），本层不区分。
+连接通道由 transport 层提供（蓝牙 BLE），本层不区分。
 """
 from __future__ import annotations
 
@@ -53,19 +53,10 @@ from .protocol import (
     uid_reverse,
 )
 from .transport import (
-    BAUD_CHOICES,                    # noqa: F401  （对外透出，UI 选波特率用）
-    DEFAULT_BAUD,
-    WIRED_CANDIDATES,
     AsyncRunner,
     BleTransport,
-    SerialTransport,
     Transport,
-    WiredUsbTransport,
     handshake,
-    list_serial_ports,
-    list_usb_devices,
-    list_wired_devices,
-    wired_handshake,
 )
 
 # 密钥破解级联顺序（任务书指定）：前一种失败自动切换下一种
@@ -197,16 +188,14 @@ class AsyncJobRunner:
 
 
 class NfcDevice:
-    """NFC Mini 2.0 同步门面（蓝牙 / USB 双通道）。"""
+    """NFC Mini 2.0 同步门面（蓝牙 BLE 单通道）。"""
 
     def __init__(self, on_log: Optional[Callable[[str, str], None]] = None) -> None:
         self._on_log = on_log
         self.jobs = AsyncJobRunner(on_log=on_log)
         self._ble = BleTransport(on_log=on_log)
-        self._serial: Optional[SerialTransport] = None
-        self._wired: Optional[WiredUsbTransport] = None
         self.transport: Optional[Transport] = None
-        self.mode: str = ""                        # "ble" / "usb" / "wired" / ""
+        self.mode: str = ""                        # "ble" or ""
         self._parser = FrameParser()
         self._msgid = 0
         self._waiters: Dict[int, "threading.Event"] = {}
@@ -243,28 +232,16 @@ class NfcDevice:
         label = getattr(self.transport, "label", "")
         if self.mode == "ble":
             return f"蓝牙 · {self.name or self.mac or label}"
-        if self.mode == "wired":
-            return f"USB 有线 · {label}"
-        return f"USB · {label}" if label else "USB"
+        return "未连接"
 
     def snapshot(self) -> dict:
         """给前端的状态快照。"""
-        wired = self._wired
         return {
             "connected": self.connected,
             "mode": self.mode,
             "transport_label": self.transport_label,
             "mac": self.mac,
             "name": self.name,
-            "port": self._serial.port if (self._serial and self.mode == "usb") else "",
-            "baud": self._serial.baud if (self._serial and self.mode == "usb") else DEFAULT_BAUD,
-            "wired": {
-                "vid_pid": (f"{wired.vid:04X}:{wired.pid:04X}" if wired and wired.connected else ""),
-                "label": (wired.label if wired and wired.connected else ""),
-                "iface": (wired.iface_num if wired and wired.connected else -1),
-                "tx_bytes": (wired.tx_bytes if wired else 0),
-                "rx_bytes": (wired.rx_bytes if wired else 0),
-            },
             "write_format": self._write_format,
             "jobs": self.jobs.active(),
         }
@@ -275,24 +252,6 @@ class NfcDevice:
         devices = self._ble.scan(timeout)
         return devices
 
-    def list_ports(self) -> dict:
-        """USB 串口枚举：自动排除蓝牙虚拟串口。"""
-        return {
-            "ports": list_serial_ports(include_bluetooth=False),
-            "usb_devices": list_usb_devices(),
-            "baud_choices": BAUD_CHOICES,
-            "default_baud": DEFAULT_BAUD,
-        }
-
-    def probe_serial(self, port: str, baud: int = DEFAULT_BAUD) -> dict:
-        """握手探测：开机一次串口，发 INFO，看对方是否按本协议回话。"""
-        dev = _SerialProbe(port, baud, on_log=self._log)
-        try:
-            return handshake(dev, timeout=2.5)
-        finally:
-            dev.disconnect()
-
-    # ------------------------------------------------------------ 连接
     def connect(self, mac: str, timeout: float = 20.0) -> dict:
         self.disconnect()
         self._bind(self._ble)
@@ -301,79 +260,6 @@ class NfcDevice:
         self.mac = mac
         self.name = None
         return self.snapshot()
-
-    def connect_serial(self, port: str, baud: int = DEFAULT_BAUD) -> dict:
-        self.disconnect()
-        serial = SerialTransport(on_log=self._log)
-        self._bind(serial)
-        serial.open(port=port, baud=baud)
-        self._serial = serial
-        self.mode = "usb"
-        self.mac = None
-        self.name = f"USB {port}"
-        return self.snapshot()
-
-    def list_wired(self) -> dict:
-        """枚举可用的「USB 有线」设备（libusb 视角，非串口）。"""
-        return {
-            "devices": list_wired_devices(),
-            "candidates": [{"vid": v, "pid": p, "label": l} for v, p, l in WIRED_CANDIDATES],
-        }
-
-    def connect_wired(self, vid: int = 0, pid: int = 0, serial: str = "") -> dict:
-        self.disconnect()
-        wired = WiredUsbTransport(on_log=self._log)
-        self._bind(wired)
-        wired.open(vid=int(vid or 0), pid=int(pid or 0), serial=str(serial or ""))
-        self._wired = wired
-        self.mode = "wired"
-        self.mac = None
-        self.name = wired.describe.get("product") or "USB 有线读卡器"
-        return self.snapshot()
-
-    def probe_wired(self, vid: int = 0, pid: int = 0, serial: str = "") -> dict:
-        """USB 有线握手探测：开一次通道发 INFO/STATE，看设备是否按协议回话。"""
-        probe = NfcDevice(on_log=self._log)
-        try:
-            probe.connect_wired(vid=vid, pid=pid, serial=serial)
-            if probe._wired is not None:
-                probe._wired.drain()
-            return wired_handshake(probe, timeout=2.5)
-        finally:
-            probe.disconnect()
-
-    def wired_send_raw(self, frame_hex: str, wait: float = 1.5) -> dict:
-        """试发帧：把十六进制原文直接写到 bulk OUT，并在 wait 秒内收集原始回包。"""
-        if self.mode != "wired" or self._wired is None or not self._wired.connected:
-            raise NfcError("请先连接 USB 有线设备")
-        data = hex_to_bytes(frame_hex)
-        if not data:
-            raise NfcError("请填写要发送的十六进制帧")
-        wired = self._wired
-        wired.drain()
-        mark = wired.raw_count()                   # 记录发送前的日志长度
-        started = time.time()
-        wired.send(data)
-        deadline = started + max(0.2, min(float(wait), 10.0))
-        while time.time() < deadline:
-            time.sleep(0.1)
-        elapsed = round(time.time() - started, 2)
-        replies = [x for x in wired.raw_since(mark) if x["dir"] == "rx"]
-        self._log("ok" if replies else "warn",
-                  f"USB 有线试发：{data.hex(' ').upper()} → "
-                  + (f"收到 {len(replies)} 包回包" if replies else "无应答"))
-        return {
-            "sent_hex": data.hex(" ").upper(),
-            "sent_len": len(data),
-            "replies": replies,
-            "elapsed": elapsed,
-            "raw": wired.raw_snapshot(limit=80),
-        }
-
-    def wired_raw_log(self, limit: int = 120, clear: bool = False) -> List[dict]:
-        if self._wired is None:
-            return []
-        return self._wired.raw_snapshot(limit=limit, clear=clear)
 
     def _bind(self, transport: Transport) -> None:
         self._parser.reset()
@@ -386,7 +272,7 @@ class NfcDevice:
 
     def disconnect(self) -> None:
         with self._lock:
-            for transport in (self._ble, self._serial, self._wired):
+            for transport in (self._ble,):
                 if transport is None:
                     continue
                 try:
@@ -394,8 +280,6 @@ class NfcDevice:
                 except Exception:
                     pass
             self.transport = None
-            self._serial = None
-            self._wired = None
             self.mode = ""
             self._parser.reset()
             self._waiters.clear()
@@ -403,7 +287,7 @@ class NfcDevice:
 
     # ------------------------------------------------------------ 收发
     def _on_data(self, chunk: bytes) -> None:
-        """入站字节（可能来自 BLE 通知线程，也可能来自串口读线程）。"""
+        """入站字节（来自 BLE 通知线程）。"""
         try:
             frames = self._parser.feed(bytes(chunk))
         except Exception as exc:                   # noqa: BLE001
@@ -542,6 +426,11 @@ class NfcDevice:
         if code != 0:
             raise NfcError(err_text(code), code)
         if len(d) < 9:
+            # 未放卡时固件只回「11 07」（2 字节），旧实现直接甩
+            # 「寻卡响应过短」，用户看不懂；这里按状态码给出准确原因。
+            status = _status_code(d)
+            if status:
+                raise NfcError(err_text(status), status)
             raise NfcError(f"寻卡响应缺少卡数据（{len(d)} 字节）：{fmt_hex(d)}")
 
         type_id = int(d[2])
@@ -810,6 +699,10 @@ class NfcDevice:
         done = 0
         started = time.time()
         cur_sector = -1
+        # 本扇区实际认证通过的密钥类型：旧实现把它丢掉、读块恒用入参 key_type，
+        # 于是"只有 KEY B 能开的扇区"会认证成功却读块失败（回 08）。
+        block_kt = int(key_type)
+        auth_ok = True
         for block in range(total):
             if should_stop and should_stop():
                 errors[-1] = "用户取消"
@@ -820,18 +713,35 @@ class NfcDevice:
                 sk = (sector_keys or {}).get(sector)
                 target = _as_key(sk) if sk else _as_key(key)
                 try:
-                    self.auth_auto(sector * 4, target, key_type)
+                    block_kt = self.auth_auto(sector * 4, target, key_type)
+                    auth_ok = True
                     if sk:
-                        sector_notes[sector] = f"扇区 {sector} 用破解密钥认证通过"
+                        sector_notes[sector] = (f"扇区 {sector} 用破解密钥 "
+                                                f"{target.hex().upper()} 认证通过"
+                                                f"（{'KEY B' if block_kt else 'KEY A'}）")
+                    else:
+                        sector_notes[sector] = (f"扇区 {sector} 认证通过"
+                                                f"（{'KEY B' if block_kt else 'KEY A'}）")
                 except NfcError as exc:
+                    auth_ok = False
+                    block_kt = int(key_type)
                     sector_notes[sector] = f"扇区 {sector} 认证未通过（{exc}）"
             if not include_trailers and block % 4 == 3:
                 done += 1
                 if progress:
                     progress(done, total, block)
                 continue
+            if not auth_ok:
+                # 认证没过的扇区不必再逐块发读命令（固件只会回 08），
+                # 直接按错误记账：省掉 16×4 次无谓往返，失败原因也一目了然。
+                blocks[block] = None
+                errors[block] = sector_notes.get(sector, "扇区认证未通过")
+                done += 1
+                if progress:
+                    progress(done, total, block)
+                continue
             try:
-                blocks[block] = fmt_hex(self.read_block(block, key_type))
+                blocks[block] = fmt_hex(self.read_block(block, block_kt))
             except NfcError as exc:
                 blocks[block] = None
                 errors[block] = str(exc)
@@ -1653,14 +1563,6 @@ class NfcDevice:
 
     def cancel_job(self, handle: str) -> dict:
         return self.jobs.cancel(handle)
-
-
-class _SerialProbe(NfcDevice):
-    """轻量探针：复用 NfcDevice 的握手能力，但不影响主设备状态。"""
-
-    def __init__(self, port: str, baud: int, on_log=None) -> None:
-        super().__init__(on_log=on_log)
-        self.connect_serial(port, baud)
 
 
 # ---------------------------------------------------------------- 内部工具

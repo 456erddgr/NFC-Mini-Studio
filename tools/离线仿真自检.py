@@ -67,6 +67,11 @@ class FakePeer:
         self.silent = silent
         self.calls = []
         self.blocks = {}          # 模拟卡片存储：块号 -> 16 字节，供写后回读校验
+        # 模拟一张"真卡"：所有扇区的密钥都是 00010203046C（不是出厂默认 FFFF…）。
+        # 有了白名单 + 认证态，就能真正兜住「拿默认密钥去读整卡 → 0/N」这类 bug：
+        # 旧版 FakePeer 对任何密钥都回成功、读块也不校验是否已认证，是假阳性。
+        self.keys = {"00010203046C"}
+        self.authed = set()       # 已认证通过的扇区号
 
     def reply(self, d: bytes):
         if not d:
@@ -81,15 +86,31 @@ class FakePeer:
             return bytes([0x02, 0, 0, 0])
         if cmd == 0x11:                      # 寻卡
             return bytes([0x11, 0, 1, 0xDD, 0xCC, 0xBB, 0xAA, 0x08, 0])
-        if cmd == 0x0A:                      # 密钥认证
-            return bytes([0x0A, 0])
-        if cmd == 0x07:                      # 读块：优先回读已写入的数据
+        if cmd in (0x06, 0x09):              # 校验 KEY A / KEY B：只认白名单里的密钥
             blk = d[1] & 0xFF
+            kb = bytes(d[2:8]).hex().upper()
+            if kb in self.keys:
+                self.authed.add(blk // 4)
+                return bytes([cmd, blk, 0])
+            return bytes([cmd, blk, 1])      # ERR[1] = 错误 Code:1（认证失败）
+        if cmd == 0x0A:                      # 0x0A 是空命令（实测固件不校验密钥）
+            return bytes([0x0A, 0])
+        if cmd == 0x07:                      # 读块：未认证的扇区必须回 08
+            blk = d[1] & 0xFF
+            if (blk // 4) not in self.authed:
+                return bytes([0x07, blk, 8])     # ERR[8] = 密钥认证失败
             data = self.blocks.get(blk) or bytes([(blk * 16 + i) & 0xFF for i in range(16)])
             return bytes([0x07, blk, 0]) + data
         if cmd in (0x08, 0x16, 0x18):        # 写块：记录数据，供写后回读校验
             blk = d[1] & 0xFF
-            self.blocks[blk] = bytes(d[2:18]).ljust(16, b"\x00")
+            body = bytes(d[2:18]).ljust(16, b"\x00")
+            # 0x18 的载荷是 (块号, 0x00, 数据16)；0x08 是 (块号, 密钥类型, 数据16)，
+            # 0x16 是 (块号, 数据16)。统一取最后 16 字节当数据最稳。
+            if cmd in (0x08, 0x18):
+                body = bytes(d[3:19]).ljust(16, b"\x00")
+            if (blk // 4) not in self.authed:
+                return bytes([cmd, blk, 8])
+            self.blocks[blk] = body
             return bytes([cmd, 0])
         if cmd in (0x20, 0x30, 0x32, 0x38, 0x22, 0x37):   # 破解类
             return bytes([cmd, 0]) + bytes.fromhex("FFFFFFFFFFFF")
@@ -221,9 +242,9 @@ def main():
         out = {}
         out["state"] = dev.device_state()["raw"]
         out["find"] = dev.find_card()
-        out["auth"] = dev.auth(4, bytes(b"\xff" * 6), 0)
+        out["auth"] = dev.auth(4, bytes.fromhex("00010203046C"), 0)
         out["read"] = dev.read_block(4, 0).hex().upper()
-        dev.write_block(4, bytes(16), bytes(b"\xff" * 6), 0)
+        dev.write_block(4, bytes(16), bytes.fromhex("00010203046C"), 0)
         out["write"] = "ok"
         out["crack"] = dev.crack("staticnested", 0)
         out["bug"] = dev.detect_bug_card()
@@ -234,10 +255,20 @@ def main():
     def c_dump(dev):
         dev.connect("D0:0C:5E:94:0B:A8")
         t0 = time.time()
-        res = dev.dump_card(include_trailers=False)
+        # 用真卡密钥（00010203046C）读整卡：应当全部成功。
+        res = dev.dump_card(key=bytes.fromhex("00010203046C"), include_trailers=False)
+        assert res["ok_count"] == 48, f"整卡读取应 48/48，实际 {res['ok_count']}"
         return {"blocks": len([v for v in res["blocks"].values() if v]),
                 "errors": len(res["errors"]), "sec": round(time.time() - t0, 2)}
-    run_case("dump_card 整卡读取 48 块", c_dump, results)
+    run_case("dump_card 整卡读取 48 块（正确密钥）", c_dump, results)
+
+    def c_dump_wrong_key(dev):
+        dev.connect("D0:0C:5E:94:0B:A8")
+        # 用出厂默认密钥 FFFF… 读同一张卡：必须 0 块成功（回归锁）。
+        res = dev.dump_card(key=bytes(b"\xff" * 6), include_trailers=False)
+        assert res["ok_count"] == 0, f"错误密钥竟然读到了 {res['ok_count']} 块"
+        return {"ok_count": res["ok_count"], "sector_notes": len(res["sector_notes"])}
+    run_case("回归：错误密钥读整卡应为 0 块（旧实现会假成功）", c_dump_wrong_key, results)
 
     def c_silent(dev):
         try:
