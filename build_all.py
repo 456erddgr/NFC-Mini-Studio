@@ -40,12 +40,6 @@ def build_app() -> int:
         "--add-data", f"{ROOT / 'app' / 'web'};app/web",
         "--collect-all", "webview",
         "--collect-all", "bleak",
-        # v2.1：USB 有线直连通道依赖 pyusb + libusb_package（含 libusb-1.0.dll），
-        # 串口通道依赖 pyserial（含运行期才导入的 serial.tools.list_ports）
-        "--collect-all", "usb",
-        "--collect-all", "libusb_package",
-        "--collect-all", "serial",
-        "--hidden-import", "serial.tools.list_ports",
         "--collect-all", "numpy",
         "--collect-all", "numba",
         "--collect-all", "llvmlite",

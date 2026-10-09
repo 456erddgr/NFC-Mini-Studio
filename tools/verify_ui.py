@@ -140,10 +140,6 @@ def main() -> int:
     alpha = parse(steps.get("alpha_slider")) or {}
     drawer = parse(steps.get("log_drawer")) or {}
     wall_custom = parse(steps.get("wall_custom_after")) or {}
-    wired_scan = parse(steps.get("wired_scan")) or {}
-    wired_conn = parse(steps.get("wired_connected")) or {}
-    wired_frame = parse(steps.get("wired_frame")) or {}
-    wired_off = parse(steps.get("wired_after_disconnect")) or {}
 
     checks: list[tuple[bool, str, str]] = []
 
@@ -188,19 +184,6 @@ def main() -> int:
                           f"selFile={wall_custom.get('selFile')!r}")
     ck(wall_custom.get("sel") == 1,
        "自定义壁纸选中态唯一", f"选中 {wall_custom.get('sel')} 个")
-    ck(wired_scan.get("rows", 0) >= 1 and "发现" in str(wired_scan.get("badge")),
-       "USB 有线枚举真的出设备",
-       f"角标「{wired_scan.get('badge')}」，{wired_scan.get('rows')} 项，"
-       f"首个 {wired_scan.get('first')!r} key={wired_scan.get('key')!r}")
-    ck(wired_conn.get("connected") is True and wired_conn.get("mode") == "wired",
-       "有线连接可点通并切换模式",
-       f"badge「{wired_conn.get('badge')}」mode={wired_conn.get('mode')!r} "
-       f"state={wired_conn.get('state')!r}")
-    ck(wired_frame.get("logRows", 0) >= 1,
-       "试发帧真的落到原始收发日志",
-       f"{wired_frame.get('logRows')} 行；末行 {wired_frame.get('last')!r}")
-    ck(wired_off.get("connected") is False,
-       "有线断开恢复正常", f"badge「{wired_off.get('badge')}」")
 
     if args.exe:
         root = Path(args.exe).resolve().parent
@@ -218,8 +201,6 @@ def main() -> int:
           f"boot.at={boot.get('at')}")
     print(f"接口快照   ：{diag.get('apiKeys')} 个（非函数：{diag.get('apiNonFn') or '无'}）")
     print(f"扫描结果   ：{scan}")
-    print(f"有线通道   ：枚举 {wired_scan.get('badge')} → 连接 {wired_conn.get('badge')} → "
-          f"试发 {wired_frame.get('logRows')} 行日志 → 断开 {wired_off.get('badge')}")
     print(f"背景切换   ：{wall_before.get('bg')} → {wall_after.get('bg')}")
     print(f"最近日志   ：{diag.get('logs')}")
     print("-" * 70)

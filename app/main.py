@@ -164,47 +164,6 @@ def _verify_ui(window) -> None:
         " selFile: (document.querySelector('#wallGrid .wall-item.sel') || {}).dataset"
         " ? document.querySelector('#wallGrid .wall-item.sel').dataset.file || '' : ''})"))
 
-    # 7) USB 有线：枚举 → 连接 → 试发帧 → 断开（v2.1 新增通道，必须走通）
-    step("wired_nav", ev(
-        "(() => { const n = document.querySelector('[data-view=\"device\"]');"
-        " if (n) n.click(); return 'ok'; })()"))
-    step("wired_click_scan", ev(
-        "(() => { const b = document.getElementById('btnScanWired');"
-        " if (!b) return 'no-button'; b.click(); return 'clicked'; })()"))
-    time.sleep(5)
-    step("wired_scan", ev(
-        "JSON.stringify({badge: (document.getElementById('wiredBadge')||{}).textContent,"
-        " rows: document.querySelectorAll('#wiredList > li:not(.empty)').length,"
-        " first: (document.querySelector('#wiredList > li b')||{}).textContent || '',"
-        " key: (document.querySelector('#wiredList > li')||{}).dataset"
-        "   ? (document.querySelector('#wiredList > li').dataset.key || '') : ''})"))
-    step("wired_click_conn", ev(
-        "(() => { const li = document.querySelector('#wiredList > li:not(.empty)');"
-        " if (!li) return 'no-device'; const b = li.querySelector('[data-act=\"conn\"]');"
-        " if (!b) return 'no-conn-button'; b.click(); return 'clicked'; })()"))
-    time.sleep(3.5)
-    step("wired_connected", ev(
-        "JSON.stringify({badge: (document.getElementById('wiredBadge')||{}).textContent,"
-        " connected: window.__diag ? window.__diag().wiredConnected : null,"
-        " mode: window.__diag ? window.__diag().mode : null,"
-        " state: (document.getElementById('kvState')||{}).textContent})"))
-    step("wired_click_send", ev(
-        "(() => { const b = document.getElementById('btnSendWired');"
-        " if (!b) return 'no-button'; b.click(); return 'clicked'; })()"))
-    time.sleep(3)
-    step("wired_frame", ev(
-        "JSON.stringify({logRows: document.querySelectorAll('#wiredLog > div').length,"
-        " last: ((document.querySelector('#wiredLog > div:last-child')||{}).textContent || '')"
-        "   .slice(0, 160),"
-        " hint: ((document.getElementById('wiredHint')||{}).textContent || '').slice(0, 80)})"))
-    step("wired_click_disc", ev(
-        "(() => { const b = document.getElementById('btnWiredDisconnect');"
-        " if (!b) return 'no-button'; b.click(); return 'clicked'; })()"))
-    time.sleep(2)
-    step("wired_after_disconnect", ev(
-        "JSON.stringify({badge: (document.getElementById('wiredBadge')||{}).textContent,"
-        " connected: window.__diag ? window.__diag().wiredConnected : null})"))
-
     step("final", diag())
 
     try:
@@ -266,9 +225,9 @@ def main() -> int:
         APP_TITLE,
         url=index.as_uri(),
         js_api=api,
-        width=1200,
-        height=780,
-        min_size=(1000, 660),
+        width=1280,
+        height=820,
+        min_size=(1080, 700),
         frameless=True,
         easy_drag=False,
         resizable=True,
