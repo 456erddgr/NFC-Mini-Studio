@@ -23,3 +23,6 @@ _tmp_*
 # ---- 备份与缓存 ----
 _backup/
 .numba_cache/
+
+# ---- 运行时同步到前端目录的用户壁纸（属于用户数据，不入库）----
+app/web/wallpapers/*
