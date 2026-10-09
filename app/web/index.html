@@ -619,6 +619,13 @@
               <span>单方式超时（秒）</span>
               <input class="input" id="setCrackTimeout" type="number" value="25" min="5" max="600">
             </label>
+            <label class="field">
+              <span>全卡破解时间上限（秒，超时保留已解出的扇区）</span>
+              <input class="input" id="setCrackBudget" type="number" value="300" min="30" max="3600">
+            </label>
+            <label class="check">
+              <input type="checkbox" id="setCrackBatch"><span>候选密钥批量认证（更快；设备漏应答会自动回退串行）</span>
+            </label>
             <label class="check">
               <input type="checkbox" id="setAutoCrack"><span>寻卡后自动后台破解</span>
             </label>

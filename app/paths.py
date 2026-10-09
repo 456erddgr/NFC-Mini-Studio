@@ -10,8 +10,9 @@ APP_NAME = "NFCMiniStudio"
 APP_TITLE = "NFC Mini Studio"
 APP_VERSION = "2.6.0"
 
-# 项目自 v2.0.0 起从 C 盘工作区迁移到 E:\NFCMiniStudio（见 README「项目位置」）
-DEFAULT_PROJECT_DIR = r"E:\NFCMiniStudio"
+# 仅作参考记录：项目当前位于 E:\我的项目\NFCMiniStudio（2026-10-09 从 E:\NFCMiniStudio 整理而来）。
+# 运行期一律用 project_root() 动态解析，不依赖这个常量，目录再搬家也不会失效。
+DEFAULT_PROJECT_DIR = r"E:\我的项目\NFCMiniStudio"
 
 
 def is_frozen() -> bool:

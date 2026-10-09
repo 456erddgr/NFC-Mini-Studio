@@ -1,0 +1,8 @@
+﻿【这是什么】NFC Mini 2.0 桌面读卡工具（NFC Mini Studio v2.6.0）
+
+用途：把原本只有小程序能用的 NFC Mini 2.0 蓝牙读卡器搬到 Windows 上使用：
+      扫描连接、寻卡、读卡、写卡、复制卡、密钥破解、卡夹管理。
+大小：约 0.8 GB。
+
+怎么用：运行 installer\dist\ 里的安装程序；或双击 run.py（需 Python 环境）。
+备注：这是 Git 仓库，但没有关联远程仓库（无 origin）。

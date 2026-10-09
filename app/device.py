@@ -386,6 +386,57 @@ class NfcDevice:
                 self._multi_done.pop(mid, None)
         return count["n"]
 
+    def request_batch(self, payloads: List[bytes], timeout: float = 8.0) -> List[Optional[bytes]]:
+        """一次性发出多条请求（各自独立 msgid），再按 msgid 配对收集应答。
+
+        用途：批量校验候选密钥。固件单次 0x06/0x09 往返实测约 200ms，500 把串行
+        要 100 秒；改成"先全部写出去、再一起收"，能把这部分纯等待压掉。
+        返回与入参等长的列表，无应答的位置为 None（调用方据此回退串行）。
+        """
+        items = [bytes(p) for p in (payloads or [])]
+        if not items:
+            return []
+        with self._lock:
+            if not self.connected:
+                raise NfcError("设备未连接，请先连接读卡器")
+            frames: List[bytes] = []
+            events: List[tuple] = []
+            for data in items:
+                mid = self._next_id()
+                frames.append(build_frame(data, mid))
+                ev = threading.Event()
+                self._waiters[mid] = ev
+                self._payloads.pop(mid, None)
+                events.append((mid, ev))
+        try:
+            for frame in frames:
+                try:
+                    self.transport.send(frame)
+                except Exception as exc:               # noqa: BLE001
+                    self._log("warn", f"批量请求发送失败：{exc}")
+                    break
+            deadline = time.time() + max(0.5, float(timeout))
+            out: List[Optional[bytes]] = []
+            for mid, ev in events:
+                if ev.wait(max(0.0, deadline - time.time())):
+                    with self._lock:
+                        out.append(self._payloads.pop(mid, b"") or None)
+                else:
+                    out.append(None)
+            return out
+        finally:
+            with self._lock:
+                for mid, _ev in events:
+                    self._waiters.pop(mid, None)
+
+    def auth_batch(self, block: int, keys: List[bytes], key_type: int = 0,
+                   timeout: float = 8.0) -> List[int]:
+        """批量校验多把密钥，返回每把的状态码（0 = 认证通过，-1 = 无应答）。"""
+        cmd = CMD.KEY_A_CHECK if (int(key_type) & 1) == 0 else CMD.KEY_B_CHECK
+        payloads = [bytes([cmd, int(block) & 0xFF]) + _as_key(k) for k in (keys or [])]
+        res = self.request_batch(payloads, timeout=timeout)
+        return [(_status_code(d) if d else -1) for d in res]
+
     # ------------------------------------------------------------ 设备信息
     def device_info(self) -> dict:
         d = self.request(bytes([CMD.INFO]), timeout=4.0)

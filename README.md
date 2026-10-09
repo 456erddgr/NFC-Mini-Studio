@@ -8,7 +8,7 @@
 
 推荐双击：
 
-`E:\NFCMiniStudio\installer\dist\NFC Mini Studio 安装程序.exe`
+`installer\dist\NFC Mini Studio 安装程序.exe`（相对项目根，当前项目在 `E:\我的项目\NFCMiniStudio`）
 
 安装程序支持：
 
@@ -22,7 +22,7 @@
 
 绿色版：
 
-`E:\NFCMiniStudio\dist\NFC Mini Studio\NFC Mini Studio.exe`
+`dist\NFC Mini Studio\NFC Mini Studio.exe`
 
 ## 本版改动
 
@@ -67,13 +67,13 @@
 安装依赖：
 
 ```powershell
-python -m pip install -r E:\NFCMiniStudio\requirements.txt
+python -m pip install -r requirements.txt
 ```
 
 全量构建：
 
 ```powershell
-cd E:\NFCMiniStudio
+cd /d E:\我的项目\NFCMiniStudio
 python build_all.py
 ```
 
@@ -106,4 +106,4 @@ python build_all.py installer
 - 通知特征：`0000FFE1-0000-1000-8000-00805F9B34FB`
 - 帧格式：`FF | LEN | MSGID | DATA | SUM | FE`
 
-详细逆向说明见：`E:\NFCMiniStudio\NFC_Mini_2.0_协议逆向报告.md`
+详细逆向说明见：项目根目录下的 `NFC_Mini_2.0_协议逆向报告.md`

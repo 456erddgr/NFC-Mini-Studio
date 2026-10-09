@@ -2029,6 +2029,8 @@ function bindUI() {
           default_key_type: +$('#setKeyType').value,
           crack_sector: +$('#setCrackSector').value,
           crack_timeout: +$('#setCrackTimeout').value || 25,
+          crack_all_budget: +($('#setCrackBudget') ? $('#setCrackBudget').value : 300) || 300,
+          crack_batch_auth: !!($('#setCrackBatch') || {}).checked,
           auto_crack: !!$('#setAutoCrack').checked,
           auto_find: !!$('#setAutoFind').checked,
           hid_enable: !!($('#setHidEnable') || {}).checked,
@@ -2399,6 +2401,8 @@ async function loadBackend() {
     if ($('#keyType')) $('#keyType').value = state.settings.default_key_type == null ? 0 : state.settings.default_key_type;
     if ($('#setCrackSector')) $('#setCrackSector').value = state.settings.crack_sector == null ? 0 : state.settings.crack_sector;
     if ($('#setCrackTimeout')) $('#setCrackTimeout').value = state.settings.crack_timeout || 25;
+    if ($('#setCrackBudget')) $('#setCrackBudget').value = state.settings.crack_all_budget || 300;
+    if ($('#setCrackBatch')) $('#setCrackBatch').checked = state.settings.crack_batch_auth !== false;
     if ($('#setAutoCrack')) $('#setAutoCrack').checked = state.settings.auto_crack !== false;
     if ($('#setAutoFind')) $('#setAutoFind').checked = state.settings.auto_find !== false;
     /* 破解页扫描开关与全局「寻卡后自动破解」保持同步 */
