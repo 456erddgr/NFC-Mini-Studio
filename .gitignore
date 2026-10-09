@@ -26,3 +26,4 @@ _backup/
 
 # ---- 运行时同步到前端目录的用户壁纸（属于用户数据，不入库）----
 app/web/wallpapers/*
+!app/web/wallpapers/.gitkeep

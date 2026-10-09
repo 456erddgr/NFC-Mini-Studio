@@ -1,0 +1,2 @@
+占位文件：实际壁纸图片由 app/paths.py 的 sync_wallpapers() 从
+%APPDATA%\NFCMiniStudio\wallpapers 同步进来，属用户数据，不纳入版本库。

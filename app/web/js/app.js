@@ -472,11 +472,13 @@ function showCrackFail(summary, attempts) {
 function switchView(name) {
   $$('.nav-item').forEach(b => b.classList.toggle('is-active', b.dataset.view === name));
   $$('.view').forEach(v => v.classList.toggle('is-active', v.id === 'view-' + name));
-  const titles = { device: '设备', card: '寻卡读写', crack: '密钥破解',
-                   box: '卡夹', settings: '外观设置' };
+  const titles = { device: '设备', card: '寻卡读写', box: '卡夹',
+                   crack: '密钥破解', keybox: '密码库',
+                   appearance: '外观', settings: '设置', help: '常见问题' };
   setText('#tbTitle', titles[name] || name);
   if (name === 'box') refreshBox();
-  if (name === 'settings') refreshWalls();
+  if (name === 'appearance') refreshWalls();
+  if (name === 'keybox') loadKeybox(keyboxLib);
 }
 
 /* ---------------------------------------------------------- 设备 3D 展示 */
@@ -2367,9 +2369,10 @@ async function loadBackend() {
 
   step('读取应用信息', async () => {
     const info = await api('app_info');
+    state.version = info.version || '';
     state.methods = info.crack_methods || [];
     state.chain = info.crack_chain || [];
-    setText('#aboutVer', info.version || '2.3.0');
+    setText('#aboutVer', info.version || '—');
     renderMethods();
     if (info.last_card && info.last_card.uid) {
       const lc = info.last_card;
@@ -2472,7 +2475,7 @@ async function init() {
   state.ready = true;
   log('界面已就绪，正在连接后端…', 'ok');
   await loadBackend();
-  log('NFC Mini Studio 2.3.0 已就绪', 'ok');
+  log(`NFC Mini Studio ${state.version || ''} 已就绪`, 'ok');
 }
 
 let __booted = false;
@@ -2533,6 +2536,7 @@ window.__diag = function () {
     unbound: unbound.join(','),
     unboundCount: unbound.length,
     navCount: $$('.nav-item').length,
+    navTitles: $$('.nav-item').map(b => (b.textContent || '').trim()),
     wallCount: wallGrid ? wallGrid.children.length : -1,
     alpha: getComputedStyle(document.documentElement).getPropertyValue('--alpha').trim(),
     blur: getComputedStyle(document.documentElement).getPropertyValue('--blur').trim(),

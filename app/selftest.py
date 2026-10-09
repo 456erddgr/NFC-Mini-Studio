@@ -193,6 +193,23 @@ def t_backend_roundtrip() -> str:
             f"壁纸 {len(walls['data'])} 张")
 
 
+def t_selftest_sandbox() -> str:
+    """自检必须跑在临时数据目录里，绝不能动用户的真实配置。
+
+    这一条是"自检会改真实 settings.json"这个已知隐患的回归锁：
+    若哪天有人把 run() 里的 APPDATA 沙箱去掉，这里会立刻失败。
+    """
+    from . import paths
+
+    real = _REAL_DATA_DIR
+    cur = paths.data_dir().resolve()
+    assert real is not None, "自检未记录真实数据目录，无法判定隔离是否生效"
+    real = Path(real).resolve()
+    assert cur != real, f"自检没有隔离用户配置，正在使用真实目录：{cur}"
+    assert "nfcmini-selftest-" in str(cur), f"自检数据目录不是沙箱：{cur}"
+    return f"数据目录已隔离（沙箱 {cur.parent.name}，真实目录未触碰）"
+
+
 def t_wallpaper_pipeline() -> str:
     """造一张临时图，验证 选图->同步->前端可取 的完整链路。"""
     from . import paths
@@ -555,37 +572,71 @@ def t_ble() -> str:
 
 
 # ------------------------------------------------------------ 主入口
+_REAL_DATA_DIR = None      # run() 在切沙箱前记录的真实数据目录，供隔离检查比对
+
+
 def run() -> int:
+    global _REAL_DATA_DIR
+    # 自检会写设置、卡夹、壁纸等用户数据（t_backend_roundtrip / t_settings_migrate /
+    # t_cloud_defaults 都要落盘）。为了不动用户的真实配置，这里把 APPDATA 指向临时目录
+    # —— paths.data_dir() 读的就是 APPDATA，所以设置 / 卡夹 / 密码库 / 壁纸 / 破解缓存
+    # 会整体落到沙箱里；跑完恢复，报告仍写回真实数据目录。
+    import os
+    import tempfile
+
+    real_appdata = os.environ.get("APPDATA")
+    try:
+        from . import paths as _paths
+
+        report_dir = _paths.data_dir()        # 必须在切换 APPDATA 之前解析
+    except Exception:                          # noqa: BLE001
+        report_dir = None
+    _REAL_DATA_DIR = report_dir
+    sandbox = tempfile.TemporaryDirectory(prefix="nfcmini-selftest-")
+    os.environ["APPDATA"] = sandbox.name
+
     _emit("=" * 62)
     _emit("NFC Mini Studio · 自检")
     _emit("=" * 62)
 
-    check("依赖导入", t_deps)
-    check("资源路径解析", t_paths)
-    check("按钮 id 对齐", t_button_ids)
-    check("按钮/滑杆事件绑定", t_button_bind)
-    check("导航视图对齐", t_nav_views)
-    check("前后端接口对齐", t_api_methods)
-    check("设置项登记", t_settings_keys)
-    check("CSS 玻璃变量", t_css_alpha)
-    check("后端接口联调", t_backend_roundtrip)
-    check("壁纸链路", t_wallpaper_pipeline)
-    check("老配置迁移", t_settings_migrate)
-    check("云端默认值补齐", t_cloud_defaults)
-    check("破解·本地引擎加载", t_crack_local_load)
-    check("破解·官方向量自检", t_crack_vectors)
-    check("破解·双模式设置项", t_crack_settings)
-    check("破解·降级链顺序", t_crack_chain)
-    check("破解·云端两套凭据", t_cloud_credentials)
-    check("破解·老配置云端迁移", t_cloud_store_migration)
-    check("破解·无凭据自动降级", t_crack_fallback)
-
-    _emit("-" * 62)
     try:
-        t_ble()
-    except Exception:                              # noqa: BLE001
-        record(WARN, "蓝牙扫描实测",
-               "扫描异常：" + traceback.format_exc(limit=1).strip().splitlines()[-1])
+        check("依赖导入", t_deps)
+        check("资源路径解析", t_paths)
+        check("按钮 id 对齐", t_button_ids)
+        check("按钮/滑杆事件绑定", t_button_bind)
+        check("导航视图对齐", t_nav_views)
+        check("前后端接口对齐", t_api_methods)
+        check("设置项登记", t_settings_keys)
+        check("CSS 玻璃变量", t_css_alpha)
+        check("自检隔离用户配置", t_selftest_sandbox)
+        check("后端接口联调", t_backend_roundtrip)
+        check("壁纸链路", t_wallpaper_pipeline)
+        check("老配置迁移", t_settings_migrate)
+        check("云端默认值补齐", t_cloud_defaults)
+        check("破解·本地引擎加载", t_crack_local_load)
+        check("破解·官方向量自检", t_crack_vectors)
+        check("破解·双模式设置项", t_crack_settings)
+        check("破解·降级链顺序", t_crack_chain)
+        check("破解·云端两套凭据", t_cloud_credentials)
+        check("破解·老配置云端迁移", t_cloud_store_migration)
+        check("破解·无凭据自动降级", t_crack_fallback)
+
+        _emit("-" * 62)
+        try:
+            t_ble()
+        except Exception:                              # noqa: BLE001
+            record(WARN, "蓝牙扫描实测",
+                   "扫描异常：" + traceback.format_exc(limit=1).strip().splitlines()[-1])
+    finally:
+        # 不论自检是否抛异常，都必须还原 APPDATA（否则同进程后续代码会写进沙箱）
+        if real_appdata is None:
+            os.environ.pop("APPDATA", None)
+        else:
+            os.environ["APPDATA"] = real_appdata
+        try:
+            sandbox.cleanup()
+        except Exception:                          # noqa: BLE001
+            pass
 
     bad = [r for r in _results if r[0] == FAIL]
     warn = [r for r in _results if r[0] == WARN]
@@ -599,7 +650,7 @@ def run() -> int:
     try:
         from . import paths
 
-        report = paths.data_dir() / "selftest_report.txt"
+        report = (report_dir or paths.data_dir()) / "selftest_report.txt"
         report.write_text("\n".join(_lines) + "\n", encoding="utf-8")
         print(f"报告已写入：{report}", flush=True)
     except Exception:

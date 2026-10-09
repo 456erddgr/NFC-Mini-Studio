@@ -43,20 +43,34 @@
     </div>
 
     <nav class="nav">
+      <div class="nav-group">卡片</div>
       <button class="nav-item is-active" data-view="device">
         <i class="ico ico-device"></i><span>设备</span>
       </button>
       <button class="nav-item" data-view="card">
         <i class="ico ico-card"></i><span>寻卡读写</span>
       </button>
-      <button class="nav-item" data-view="crack">
-        <i class="ico ico-crack"></i><span>密钥破解</span>
-      </button>
       <button class="nav-item" data-view="box">
         <i class="ico ico-box"></i><span>卡夹</span>
       </button>
+
+      <div class="nav-group">破解</div>
+      <button class="nav-item" data-view="crack">
+        <i class="ico ico-crack"></i><span>密钥破解</span>
+      </button>
+      <button class="nav-item" data-view="keybox">
+        <i class="ico ico-key"></i><span>密码库</span>
+      </button>
+
+      <div class="nav-group">系统</div>
+      <button class="nav-item" data-view="appearance">
+        <i class="ico ico-paint"></i><span>外观</span>
+      </button>
       <button class="nav-item" data-view="settings">
-        <i class="ico ico-gear"></i><span>外观设置</span>
+        <i class="ico ico-gear"></i><span>设置</span>
+      </button>
+      <button class="nav-item" data-view="help">
+        <i class="ico ico-help"></i><span>常见问题</span>
       </button>
     </nav>
 
@@ -373,8 +387,9 @@
           </div>
           <div class="row mt">
             <label class="check">
-              <input type="checkbox" id="lockConfirm"><span>我已知晓：封卡 / 锁卡不可逆</span>
+              <input type="checkbox" id="lockConfirm"><span>我已知晓：格式化 / 封卡 / 锁卡均不可逆</span>
             </label>
+            <button class="btn danger" id="btnFormatCard">格式化卡片</button>
             <button class="btn danger" id="btnLockUfuid">封卡 UFUID（0x17）</button>
             <button class="btn danger" id="btnLockCard">锁卡（0x23）</button>
           </div>
@@ -493,6 +508,44 @@
             <p class="hint">识别结论、卡号校验状态与破解建议会显示在这里。</p>
           </div>
         </div>
+
+        <!-- 破解模式（原在「外观设置」页，属于破解业务，移到这里） -->
+        <div class="card glass">
+          <div class="card-head">
+            <h2>破解模式（云端解算 / 本地离线）</h2>
+            <span class="badge" id="crackModeBadge">读取中…</span>
+          </div>
+          <div class="seg" id="crackModeSeg">
+            <button class="seg-item is-active" id="modeCloud">云端解算</button>
+            <button class="seg-item" id="modeLocal">本地离线</button>
+          </div>
+          <p class="hint" id="crackModeHint">云端解算失败或超时后自动降级本地 mfkey32。</p>
+
+          <div class="grid-2 mt">
+            <label class="field">
+              <span>云端解算接口地址（默认官方 recovery 地址，可替换）</span>
+              <input class="input mono" id="setCloudEndpoint" placeholder="https://nfctools.nfcreader.net/nice-json/mini-program/v1/recovery/mfkey32v2">
+            </label>
+            <label class="field">
+              <span>云端 token（需填自己账号的登录态 token）</span>
+              <input class="input mono" id="setCloudToken" type="password" placeholder="粘贴登录态 token（留空 = 保持不变）">
+            </label>
+          </div>
+          <div class="row wrap mt">
+            <button class="btn primary" id="btnWxToken">从微信小程序自动获取 token</button>
+            <span class="hint grow" id="wxTokenOut">微信已登录且「宜新 NFC Reader Tool」小程序已打开时，点这里自动抓取并填入云端 token。</span>
+          </div>
+          <p class="hint">token 来源：微信小程序「宜新 NFC Reader Tool」登录账号后，请求头 NICETHEME 的值（登录态、会过期，需自行获取粘贴）。密钥库接口用的厂商内置凭据已随软件内置，无需填写；未填 token 时云端会跳过并自动降级本地 mfkey32。</p>
+
+          <div class="row wrap mt">
+            <label class="field grow">
+              <span>云端超时（秒，超时自动降级本地）</span>
+              <input class="input" id="setCloudTimeout" type="number" value="8" min="1" max="120">
+            </label>
+            <button class="btn ghost" id="btnVerifyLocal">验证本地算法</button>
+          </div>
+          <p class="hint" id="crackVerifyOut">点「验证本地算法」跑一遍官方 mfkey32 测试向量，确认本机离线算法可用。</p>
+        </div>
       </section>
 
       <!-- ==================== 卡夹 ==================== -->
@@ -520,8 +573,8 @@
         </div>
       </section>
 
-      <!-- ==================== 设置 ==================== -->
-      <section class="view" id="view-settings">
+      <!-- ==================== 外观 ==================== -->
+      <section class="view" id="view-appearance">
         <div class="grid-2">
           <div class="card glass">
             <div class="card-head"><h2>背景外观</h2></div>
@@ -539,7 +592,12 @@
               <input type="range" id="rngAlpha" min="0" max="60" value="4">
             </label>
           </div>
+        </div>
+      </section>
 
+      <!-- ==================== 设置 ==================== -->
+      <section class="view" id="view-settings">
+        <div class="grid-2">
           <div class="card glass">
             <div class="card-head"><h2>读写与破解默认值</h2></div>
             <label class="field">
@@ -589,50 +647,17 @@
 
             <div class="about">
               <h3>关于</h3>
-              <p>NFC Mini Studio <b id="aboutVer">2.3.0</b></p>
+              <p>NFC Mini Studio <b id="aboutVer">2.6.0</b></p>
               <p class="hint">协议来自 NFC Mini 2.0 微信小程序 BLE 私有协议逆向，仅供自有设备研究使用。</p>
             </div>
           </div>
         </div>
 
-        <div class="card glass mt">
-          <div class="card-head">
-            <h2>破解模式（云端解算 / 本地离线）</h2>
-            <span class="badge" id="crackModeBadge">读取中…</span>
-          </div>
-          <div class="seg" id="crackModeSeg">
-            <button class="seg-item is-active" id="modeCloud">云端解算</button>
-            <button class="seg-item" id="modeLocal">本地离线</button>
-          </div>
-          <p class="hint" id="crackModeHint">云端解算失败或超时后自动降级本地 mfkey32。</p>
+      </section>
 
-          <div class="grid-2 mt">
-            <label class="field">
-              <span>云端解算接口地址（默认官方 recovery 地址，可替换）</span>
-              <input class="input mono" id="setCloudEndpoint" placeholder="https://nfctools.nfcreader.net/nice-json/mini-program/v1/recovery/mfkey32v2">
-            </label>
-            <label class="field">
-              <span>云端 token（需填自己账号的登录态 token）</span>
-              <input class="input mono" id="setCloudToken" type="password" placeholder="粘贴登录态 token（留空 = 保持不变）">
-            </label>
-          </div>
-          <div class="row wrap mt">
-            <button class="btn primary" id="btnWxToken">从微信小程序自动获取 token</button>
-            <span class="hint grow" id="wxTokenOut">微信已登录且「宜新 NFC Reader Tool」小程序已打开时，点这里自动抓取并填入云端 token。</span>
-          </div>
-          <p class="hint">token 来源：微信小程序「宜新 NFC Reader Tool」登录账号后，请求头 NICETHEME 的值（登录态、会过期，需自行获取粘贴）。密钥库接口用的厂商内置凭据已随软件内置，无需填写；未填 token 时云端会跳过并自动降级本地 mfkey32。</p>
-
-          <div class="row wrap mt">
-            <label class="field grow">
-              <span>云端超时（秒，超时自动降级本地）</span>
-              <input class="input" id="setCloudTimeout" type="number" value="8" min="1" max="120">
-            </label>
-            <button class="btn ghost" id="btnVerifyLocal">验证本地算法</button>
-          </div>
-          <p class="hint" id="crackVerifyOut">点「验证本地算法」跑一遍官方 mfkey32 测试向量，确认本机离线算法可用。</p>
-        </div>
-
-        <div class="card glass mt">
+      <!-- ==================== 密码库 ==================== -->
+      <section class="view" id="view-keybox">
+        <div class="card glass">
           <div class="card-head">
             <h2>密码库</h2>
             <span class="badge" id="keyboxBadge">读取中…</span>
@@ -646,7 +671,6 @@
             <input class="input mono grow" id="keyboxInput" placeholder="12 位 Hex 密钥，多个用逗号/空格分隔">
             <button class="btn primary" id="keyboxAdd">添加到用户库</button>
             <button class="btn ghost" id="keyboxClear">清空当前库</button>
-            <button class="btn ghost" id="btnFormatCard">格式化卡片</button>
           </div>
           <div class="row wrap mt">
             <select class="input" id="keyboxBlock"></select>
@@ -660,7 +684,11 @@
           <div class="keybox-list mt" id="keyboxList"></div>
           <p class="hint">公共资源库＝厂商常用密钥表；用户密钥库＝自己新增/导入；读卡历史库＝每次读卡破解命中的 UID 与密钥。</p>
         </div>
-        <div class="card glass mt">
+      </section>
+
+      <!-- ==================== 常见问题 ==================== -->
+      <section class="view" id="view-help">
+        <div class="card glass">
           <div class="card-head"><h2>常见问题</h2><span class="badge">FAQ</span></div>
           <details class="faq"><summary>云端破解为什么有时候解不出来？</summary>
             <p>云端密钥库（keygen）是按卡号 UID 收录的。收录过的卡会返回几百把候选密钥，逐把验证很快就能命中；<b>没收录的卡查不到候选</b>，就需要用 staticnest / hardnested 等需要已知密钥的算法。</p></details>

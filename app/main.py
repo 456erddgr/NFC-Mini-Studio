@@ -16,11 +16,11 @@ if __package__ in (None, ""):
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
     from app.api import Api
     from app.paths import (APP_TITLE, data_dir, sync_device_assets, sync_wallpapers,
-                           wallpapers_dir, web_dir)
+                           wallpapers_dir, web_dir, web_wallpapers_dir)
 else:
     from .api import Api
     from .paths import (APP_TITLE, data_dir, sync_device_assets, sync_wallpapers,
-                        wallpapers_dir, web_dir)
+                        wallpapers_dir, web_dir, web_wallpapers_dir)
 
 # 自检专用的假壁纸（1x1 纯色 PNG）：验证「自定义壁纸」链路，跑完就删
 VERIFY_WALLPAPER = "__verify_wall.png"
@@ -50,6 +50,11 @@ def _verify_cleanup(api) -> None:
         (wallpapers_dir() / VERIFY_WALLPAPER).unlink()
     except Exception:
         pass
+    # 同步到前端目录的那份也要删：否则每次跑 verify_ui 都会在仓库里留一张图
+    try:
+        (web_wallpapers_dir() / VERIFY_WALLPAPER).unlink()
+    except Exception:
+        pass
     if _verify_snapshot:
         try:
             api.settings.update({k: v for k, v in _verify_snapshot.items()
@@ -59,7 +64,7 @@ def _verify_cleanup(api) -> None:
             print(f"[verify-ui] 还原设置失败：{exc}", flush=True)
 
 
-def _verify_ui(window) -> None:
+def _verify_ui(window, api) -> None:
     """--verify-ui：开窗 → 真点按钮 → 读界面状态 → 落盘报告 → 自动关窗。
 
     用途是「改完之后自动检查一遍」：不需要人盯屏幕，用机器人真的去点，
@@ -94,7 +99,7 @@ def _verify_ui(window) -> None:
 
     # 1) 导航：逐个点，必须真的切视图
     step("nav_clicks", ev(
-        "JSON.stringify(['device','box','card','crack','settings'].map(v => {"
+        "JSON.stringify(['device','card','box','crack','keybox','appearance','settings','help'].map(v => {"
         " const n = document.querySelector('[data-view=\"'+v+'\"]');"
         " if (!n) return v + ':no-nav'; n.click();"
         " const el = document.getElementById('view-' + v);"
@@ -173,6 +178,15 @@ def _verify_ui(window) -> None:
     except Exception as exc:                       # noqa: BLE001
         print(f"[verify-ui] 写报告失败：{exc}", flush=True)
 
+    # 必须在关窗之前还原观感设置：tools/verify_ui.py 读到报告后就可能在
+    # 超时窗口结束后强杀本进程，如果把它留到 main() 的收尾，用户的自定义
+    # 壁纸 / 预设 / 滑杆值就会被永久改掉（真实踩过）。
+    try:
+        _verify_cleanup(api)
+        print("[verify-ui] 已还原自检前的观感设置", flush=True)
+    except Exception as exc:                       # noqa: BLE001
+        print(f"[verify-ui] 还原设置失败：{exc}", flush=True)
+
     try:
         window.destroy()
     except Exception:
@@ -241,7 +255,7 @@ def main() -> int:
 
     webview.start(
         func=(_verify_ui if "--verify-ui" in sys.argv else None),
-        args=[window],
+        args=[window, api],
         debug=bool(sys.argv[1:2] and sys.argv[1] == "--debug"),
         private_mode=False,
         storage_path=str(storage),

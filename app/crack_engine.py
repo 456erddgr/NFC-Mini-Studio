@@ -1,5 +1,5 @@
 # -*- coding: utf-8 -*-
-"""破解引擎（v2.2.0）：云端解算 + 本地离线 mfkey32 + 固件级联 自动降级。
+"""破解引擎：云端解算 + 本地离线 mfkey32 + 固件级联 自动降级。
 
 设计要点
   * 默认走厂商云端解算接口（设置项 cloud_endpoint / cloud_token / cloud_timeout，

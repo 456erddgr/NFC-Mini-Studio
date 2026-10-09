@@ -80,6 +80,17 @@ body { font-size: 13px; }
 .brand-text span { font-size: 11px; }
 
 .nav { gap: 3px; }
+.nav-group {
+  margin: 12px 9px 5px;
+  font-size: 11px; font-weight: 600;
+  color: var(--ink-4); letter-spacing: .3px;
+  user-select: none;
+}
+.nav-group:first-child { margin-top: 2px; }
+/* 侧栏图标：密码库 / 外观 / 常见问题（其余沿用 style.css 里已有的 mask 图标） */
+.ico-key { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'%3E%3Ccircle cx='6.6' cy='12' r='3.6'/%3E%3Cpath d='M10.2 12h10.2'/%3E%3Cpath d='M16.4 12v3'/%3E%3Cpath d='M19.4 12v2.4'/%3E%3C/svg%3E"); }
+.ico-paint { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.6' stroke-linecap='round'%3E%3Cpath d='M12 3.2a8.8 8.8 0 100 17.6c1.2 0 1.8-.8 1.8-1.7 0-.5-.2-.9-.5-1.2-.3-.3-.5-.7-.5-1.1 0-.9.8-1.7 1.7-1.7h1.6A4.7 4.7 0 0021 10.7C21 6.6 16.9 3.2 12 3.2z'/%3E%3Ccircle cx='8.2' cy='9.2' r='1'/%3E%3Ccircle cx='12.2' cy='7.2' r='1'/%3E%3Ccircle cx='8.6' cy='13.8' r='1'/%3E%3C/svg%3E"); }
+.ico-help { --ico: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='black' stroke-width='1.7' stroke-linecap='round'%3E%3Ccircle cx='12' cy='12' r='8.6'/%3E%3Cpath d='M9.7 9.4a2.5 2.5 0 114.1 2.1c-.9.6-1.7 1-1.7 2.2'/%3E%3Cpath d='M12 16.9h.01'/%3E%3C/svg%3E"); }
 .nav-item {
   padding: 8px 11px; border-radius: 14px;
   font-size: 13px; font-weight: 500;

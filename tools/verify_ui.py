@@ -9,7 +9,7 @@
 判定项（全部来自 ui_verify.json 的真实界面数据，不是"看起来应该没问题"）：
     - 自举：页面启动时 pywebview.api 是否已注入、核心接口是否齐全
     - 绑定：有没有按钮/滑杆没挂事件（点下去没反应的元凶）
-    - 导航：5 个导航项点击后是否真的切换视图
+    - 导航：必需导航项是否齐全、点击后是否真的切换视图
     - 扫描：点扫描后设备列表里是否真的出现了设备
     - 外观：点内置背景是否真的换掉背景、滑杆是否真的改得动 --alpha
     - 日志：有没有 err 级日志
@@ -28,7 +28,41 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DATA = Path(os.environ.get("APPDATA") or Path.home()) / "NFCMiniStudio"
 REPORT = DATA / "ui_verify.json"
+SETTINGS = DATA / "settings.json"
 DEADLINE = 240          # 秒；扫描要 6s，留足余量
+
+# 机器人会真的点"换壁纸 / 拖通透度滑杆"，这些都会落盘进 settings.json。
+# 界面自己会在关窗前还原（app/main.py::_verify_cleanup），但外层脚本存在
+# "读到报告就强杀进程"的路径，这里再兜一层：跑之前快照、跑完无条件还原。
+APPEARANCE_KEYS = ("wallpaper", "preset", "glass", "opacity", "theme")
+
+# 侧栏必须有的导航项（界面重排后按名称校验，比写死数量更抗改）
+NAV_REQUIRED = {"设备", "寻卡读写", "卡夹", "密钥破解", "密码库",
+                "外观", "设置", "常见问题"}
+
+
+def snapshot_appearance() -> dict:
+    try:
+        data = json.loads(SETTINGS.read_text(encoding="utf-8"))
+        return {k: data[k] for k in APPEARANCE_KEYS if k in data}
+    except Exception:                              # noqa: BLE001
+        return {}
+
+
+def restore_appearance(snap: dict) -> None:
+    if not snap:
+        return
+    try:
+        data = json.loads(SETTINGS.read_text(encoding="utf-8"))
+        data.update(snap)
+        SETTINGS.write_text(json.dumps(data, ensure_ascii=False, indent=2), encoding="utf-8")
+    except Exception:                              # noqa: BLE001
+        pass
+    # 顺带清掉同步到前端目录的测试壁纸，别在仓库里留图
+    try:
+        (ROOT / "app" / "web" / "wallpapers" / "__verify_wall.png").unlink()
+    except Exception:                              # noqa: BLE001
+        pass
 
 
 def report_ready(path: Path) -> bool:
@@ -81,6 +115,7 @@ def main() -> int:
     # 注意：不要用 PIPE 接 stdout —— 某些环境下 pywebview 会因此异常退出，
     # 改成落到日志文件，跑完再回读。
     log = ROOT / "tools" / "last_verify_run.log"
+    snap = snapshot_appearance()
     fh = open(log, "w", encoding="utf-8", errors="replace")
     proc = subprocess.Popen(cmd, cwd=str(ROOT), stdout=fh, stderr=subprocess.STDOUT)
 
@@ -112,6 +147,7 @@ def main() -> int:
         fh.close()
     except Exception:
         pass
+    restore_appearance(snap)
 
     def tail(n=25):
         try:
@@ -152,8 +188,11 @@ def main() -> int:
        "核心接口齐全", f"缺失={diag.get('apiMissingCore') or '无'}")
     ck(diag.get("unboundCount") == 0,
        "所有按钮/滑杆都已绑定", f"未绑定={diag.get('unbound') or '无'}")
-    ck(diag.get("navCount") == 5, "导航项数量", f"navCount={diag.get('navCount')}")
-    ck(len(nav) == 5 and all(str(x).endswith(":true") for x in nav),
+    nav_titles = set(diag.get("navTitles") or [])
+    missing_nav = sorted(NAV_REQUIRED - nav_titles)
+    ck(not missing_nav, "导航项齐全",
+       f"共 {diag.get('navCount')} 项，缺 {missing_nav or '无'}")
+    ck(bool(nav) and all(str(x).endswith(":true") for x in nav),
        "点击导航真的切换视图", "; ".join(map(str, nav)))
     ck(scan.get("items", 0) >= 1 and "失败" not in str(scan.get("badge"))
        and bool(scan.get("first")),

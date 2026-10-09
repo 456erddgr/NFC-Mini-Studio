@@ -1,9 +1,11 @@
 # -*- coding: utf-8 -*-
 """暴露给前端 HTML 的 JS API（pywebview js_api）。
 
-v2.0.0 变更：
+接口约定：所有方法统一返回 ``{"ok": bool, ...}``，前端不必处理 Python 异常。
   * 寻卡自动识卡（IC / ID / UID / 7 字节 UID）并自动在**后台**发起破解级联；
   * 读卡、写卡、复制、粘贴、破解全部推送带百分比的实时进度事件；
+  * 读/写卡的密钥统一走 _resolve_key()（会话破解 → 本卡历史库 → 密码库 →
+    界面输入 → 默认密钥，逐把真机认证），不再让界面默认密钥覆盖破解结果；
   * 写卡走后端自适应帧格式 + 回读校验，并把实际命中的格式回报给界面。
 """
 from __future__ import annotations
@@ -487,7 +489,7 @@ class Api:
                          "engine": self._crack_engine.status()})
 
     def crack_engine_status(self) -> dict:
-        """破解引擎状态（v2.2.0）：当前模式 / 执行链 / 本地算法可用性 / 云端配置。"""
+        """破解引擎状态：当前模式 / 执行链 / 本地算法可用性 / 云端配置。"""
         self._crack_engine.bind(self.settings.data)
         return self._guard(lambda: self._crack_engine.status())
 
