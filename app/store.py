@@ -45,7 +45,7 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     # （老配置里这两项若为空，启动时由 _migrate_cloud 一次性补齐，详见 CLOUD_REV）
     "crack_mode": "cloud",      # cloud=官方云端 recovery 解算（默认），local=本地离线 mfkey32
     "cloud_endpoint": DEFAULT_CLOUD_ENDPOINT,   # 官方 recovery 接口（/recovery/mfkey32v2）
-    "cloud_token": DEFAULT_CLOUD_TOKEN,         # PUT 进 NICETHEME 请求头；需填自己的登录态 token（默认空）
+    "cloud_token": DEFAULT_CLOUD_TOKEN,         # 放进 NICETHEME 请求头；登录态 token（默认空）
     "cloud_timeout": 8,         # 云端解算超时（秒），超时自动降级本地
     "crack_nonces": "",         # 手动粘贴的 mfkey32 采集数据（uid+两轮 nt/nr_enc/ar_enc）
     # ---- v2.3.0 新增：功能设置（对齐小程序 function-setting 页的 6 个开关）----

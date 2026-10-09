@@ -630,7 +630,7 @@ def parse_batch_find_result(d: bytes) -> dict:
         raise NfcError(f"批量搜索响应命令码不符：0x{d[0]:02X}")
     code = int(d[1]) if len(d) > 1 else 0x02
     if code == 0 and len(d) >= 8:
-        return {"ok": True, "key": fmt_hex(d[2:8], sep=""), "status": 0,
+        return {"ok": True, "key": bytes(d[2:8]).hex().upper(), "status": 0,
                 "detail": "设备端命中密钥"}
     return {"ok": False, "key": "", "status": code,
             "detail": BATCH_FIND_REASONS.get(code, "本批候选密钥未命中")}

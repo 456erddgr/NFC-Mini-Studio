@@ -318,7 +318,21 @@ class Api:
 
     # ------------------------------------------------------------ 设备：连接
     def scan(self, timeout: float = 6.0) -> dict:
-        return self._guard(lambda: self.device.scan(float(timeout)))
+        def work():
+            devs = self.device.scan(float(timeout))
+            # 常见坑：微信小程序打开着会自动连上读卡器、独占蓝牙，桌面端就一台都扫不到。
+            try:
+                from .wx_token import miniprogram_open
+
+                if miniprogram_open() and not any(d.get("likely_reader") for d in devs):
+                    self._on_device_log(
+                        "warn", "检测到微信小程序正开着，但没扫到读卡器："
+                                "小程序很可能已占用读卡器的蓝牙。"
+                                "请在小程序里点「断开连接」（或关掉小程序窗口）后再扫描。")
+            except Exception:                          # noqa: BLE001
+                pass
+            return devs
+        return self._guard(work)
 
     def connect(self, mac: str) -> dict:
         def work():
@@ -607,7 +621,7 @@ class Api:
         # 设备端批量验证（0x40 灌密钥表 + 0x41 让设备自己试）：候选表够大时优先走它，
         # 固件明确拒绝或异常就整体退回主机逐把验证。
         device_state = {"ok": bool(self.settings.data.get("crack_device_cache", True))}
-        DEVICE_MIN_KEYS = 32
+        DEVICE_MIN_KEYS = 8      # 设备端批量验证实测比主机逐把快 ~15x，8 把起就值得走
 
         def _try(sector: int, key_hex: str, kt: int) -> bool:
             try:
@@ -1811,48 +1825,75 @@ class Api:
         return self._guard(work)
 
     def wx_open_miniprogram(self) -> dict:
-        """打开微信（若未运行）并尽量直接拉起「宜新 NFC Reader Tool」小程序。"""
-        from .wx_token import launch_wechat, open_miniprogram
+        """打开微信并切到前台，把「怎么打开小程序」的教程一起返回给界面。
+
+        为什么不自动点：微信 4.x 是自绘界面（UIA 只暴露 2 个节点），
+        自动打开只能靠图像识别+模拟点击，维护成本高、还容易被窗口位置/DPI 搞坏。
+        现在的做法是"程序打开微信 + 给出步骤引导 + 后台自动轮询抓取 token"，
+        用户只需按提示点几下，抓到后自动填入。
+        """
+        from .wx_token import launch_wechat, focus_wechat, miniprogram_open
 
         def work():
             steps = []
             lw = launch_wechat()
             steps.append({"step": "launch_wechat", **lw})
-            mp = open_miniprogram()
-            steps.append({"step": "open_miniprogram", **mp})
-            ok = bool(lw.get("ok"))
-            opened = bool(mp.get("miniprogram_open"))
+            focused = focus_wechat()
+            steps.append({"step": "focus_wechat", "ok": focused})
+            opened = miniprogram_open()
             if opened:
-                self._on_device_log("ok", "小程序已在微信中打开（检测到 NFC Tools 窗口）")
-            elif ok:
-                self._on_device_log(
-                    "warn", "已把小程序拉起请求交给微信；没检测到小程序窗口，"
-                            "请在微信里手动点开一次「宜新 NFC Reader Tool」")
+                self._on_device_log("ok", "检测到小程序窗口已打开，可以直接抓取 token")
             else:
-                self._on_device_log("err", str(lw.get("error") or "打开微信失败"))
-            return {"ok": ok, "miniprogram_open": opened, "steps": steps,
-                    "hint": "如果小程序没有自动出现，请在微信里手动点开一次"
-                            "「宜新 NFC Reader Tool」并确认已登录。"
-                            "注意：小程序可能会自动连上读卡器并占用蓝牙，"
-                            "用完请在小程序里断开，桌面端才能连上。"}
+                self._on_device_log(
+                    "info", "微信已就绪。请按教程在微信里打开「宜新 NFC Reader Tool」小程序，"
+                            "点完「开始抓取」即可自动填入 token")
+            return {"ok": bool(lw.get("ok")), "wechat_focused": focused,
+                    "miniprogram_open": opened, "steps": steps,
+                    "mini_steps": self._mini_steps()}
         return self._guard(work)
 
-    def wx_auto_token(self, wait_seconds: float = 60.0, launch: bool = True) -> dict:
-        """一键续期云端 token：打开微信/小程序 → 轮询抓取 → 自动保存并校验。
+    @staticmethod
+    def _mini_steps() -> list:
+        """在微信里打开「宜新 NFC Reader Tool」的步骤（界面照这个引导用户）。"""
+        return [
+            {"n": 1, "title": "点开微信",
+             "desc": "在任务栏/桌面点开微信；如果出现的是登录页（显示你的头像），先点绿色的「进入微信」。"},
+            {"n": 2, "title": "点左侧的「小程序」图标",
+             "desc": "微信左侧竖排图标里那个像罗盘的圆形图标（平时是白色，点下去会变绿）。"},
+            {"n": 3, "title": "点绿色的「小程序」",
+             "desc": "中间「发现」列表里会出现一行绿色的「小程序」，点它。"},
+            {"n": 4, "title": "点红色的 NFC 图标",
+             "desc": "右侧小程序列表里那个红色圆形、带信号波纹的图标，就是「宜新 NFC Reader Tool」。"},
+            {"n": 5, "title": "开始抓取",
+             "desc": "小程序打开后回到本窗口点「开始抓取 token」，程序会自动把登录态填好。"},
+        ]
 
+    def wx_miniprogram_guide(self) -> dict:
+        """返回"在微信里打开小程序"的步骤教程（界面与文档共用）。"""
+        from .wx_token import miniprogram_open
+
+        return self._ok({"steps": self._mini_steps(),
+                         "miniprogram_open": miniprogram_open(),
+                         "appid": "wxc3dd33d9d4ae0fd6",
+                         "name": "宜新 NFC Reader Tool"})
+
+    def wx_auto_token(self, wait_seconds: float = 60.0, launch: bool = True) -> dict:
+        """抓取并续期云端 token：把微信切到前台 → 轮询抓取 → 自动保存。
+
+        小程序本身请按教程手动打开（微信 4.x 是自绘界面，自动点击不可靠、已放弃）。
         wait_seconds 内没抓到"剩余有效期够用"的 token 就报错，不会写入半成品。
         """
-        from .wx_token import launch_wechat, open_miniprogram, wait_for_token
+        from .wx_token import launch_wechat, focus_wechat, wait_for_token
 
         def work():
             steps = []
             if launch:
                 lw = launch_wechat()
                 steps.append({"step": "launch_wechat", **lw})
-                mp = open_miniprogram()
-                steps.append({"step": "open_miniprogram", **mp})
+                steps.append({"step": "focus_wechat", "ok": focus_wechat()})
                 self._on_device_log(
-                    "info", "已打开微信并尝试拉起小程序，正在等待登录态刷新…")
+                    "info", "微信已就绪，正在等待「宜新 NFC Reader Tool」小程序的登录态…"
+                            "（请按教程在小程序里点开一次；抓到后会自动填入）")
             res = wait_for_token(deadline_seconds=float(wait_seconds))
             if not res.get("ok"):
                 raise NfcError(str(res.get("error") or "未能从微信小程序获取 token"))

@@ -151,7 +151,8 @@ const CORE_API = ['app_info', 'get_settings', 'save_settings', 'list_wallpapers'
                   /* 破解双模式：引擎状态与本地向量自检（后端 app/api.py L374/L379 暴露） */
                   'crack_engine_status', 'crack_vectors',
                   /* 云端 token 自动校验 / 自动续期 */
-                  'cloud_token_check', 'wx_auto_token', 'wx_open_miniprogram'];
+                  'cloud_token_check', 'wx_auto_token', 'wx_open_miniprogram',
+                  'wx_miniprogram_guide'];
 
 function apiReady() {
   const a = (window.pywebview && window.pywebview.api) || null;
@@ -1967,6 +1968,24 @@ function bindUI() {
   if ($('#btnVerifyLocal')) $('#btnVerifyLocal').onclick = doVerifyLocal;
   if ($('#btnWxToken')) $('#btnWxToken').onclick = doWxToken;
   if ($('#btnVerifyToken')) $('#btnVerifyToken').onclick = doVerifyToken;
+  if ($('#btnOpenWechat')) $('#btnOpenWechat').onclick = doOpenWechat;
+  if ($('#btnTokenGuide')) {
+    $('#btnTokenGuide').onclick = () => { switchView('help'); renderTokenGuide(); };
+  }
+  if ($('#btnGuideOpenWechat')) $('#btnGuideOpenWechat').onclick = doOpenWechat;
+  if ($('#btnGuideFetch')) {
+    $('#btnGuideFetch').onclick = async () => {
+      const b = $('#guideBadge');
+      if (b) { b.textContent = '抓取中'; b.className = 'badge info live'; }
+      await doWxToken();
+      const st = await api('cloud_token_check');
+      const d = (st && st.data) ? st.data : (st || {});
+      if (b) {
+        b.textContent = d.valid ? '已就绪' : '未就绪';
+        b.className = 'badge ' + (d.valid ? 'ok' : 'warn');
+      }
+    };
+  }
   /* 密码库 */
   if ($('#kbTabPublic')) $('#kbTabPublic').onclick = () => setKeyboxTab('public');
   if ($('#kbTabUser')) $('#kbTabUser').onclick = () => setKeyboxTab('user');
@@ -2313,10 +2332,10 @@ async function doWxToken() {
   const out = $('#wxTokenOut');
   const btn = $('#btnWxToken');
   if (btn) btn.disabled = true;
-  if (out) out.textContent = '正在打开微信并拉起「宜新 NFC Reader Tool」，抓到登录态后会自动填入…';
+  if (out) out.textContent = '正在打开微信并切到前台，随后持续尝试抓取登录态（最多 2 分钟）…';
   setBadge('#tokenBadge', '获取中', 'info live');
   try {
-    const r = await api('wx_auto_token', 75, true);
+    const r = await api('wx_auto_token', 150, true);
     const hours = (r && r.hours != null) ? r.hours : Math.floor(((r && r.expires_in) || 0) / 3600);
     const text = `已获取云端 token：UID ${(r && r.uid) || '?'} · 剩余约 ${hours} 小时 · 已自动填入并切到云端`;
     if (out) out.textContent = text;
@@ -2366,6 +2385,53 @@ async function doVerifyToken() {
 }
 
 /* 启动时自动校验云端 token：失效就征求同意，同意后打开微信小程序自动续期 */
+/* ---------------- 云端 token 教程（步骤 + 实拍图） ---------------- */
+const TOKEN_STEPS = [
+  { n: 1, title: '点开微信', img: 'assets/wx_step1_login.png',
+    desc: '在任务栏或桌面点开微信。如果出现的是登录页（显示你的头像），先点绿色的「进入微信」。' },
+  { n: 2, title: '点左侧的「小程序」图标', img: 'assets/wx_step2_panel.png',
+    desc: '微信左侧竖排图标里那个像罗盘的圆形图标，平时是白色、点下去会变绿。' },
+  { n: 3, title: '点绿色的「小程序」', img: 'assets/wx_step3_green.png',
+    desc: '中间的「发现」列表里会出现一行绿色的「小程序」，点它。' },
+  { n: 4, title: '点红色的 NFC 图标', img: 'assets/wx_step4_applet.png',
+    desc: '右侧小程序列表里那个红色圆形、带信号波纹的图标，就是「宜新 NFC Reader Tool」。' },
+  { n: 5, title: '回到本窗口，点「开始抓取」',
+    desc: '小程序打开后（能看到它的界面就行），回到本窗口点「开始抓取 token」，程序会自动读取登录态并填好。' },
+];
+
+function renderTokenGuide() {
+  const box = $('#tokenGuide');
+  if (!box) return;
+  box.innerHTML = TOKEN_STEPS.map(s =>
+    `<div class="guide-step">
+       <div class="g-n">${s.n}</div>
+       <div class="g-body">
+         <b>${escapeHtml(s.title)}</b>
+         <p class="hint">${escapeHtml(s.desc)}</p>
+         ${s.img ? `<img class="g-img" src="${s.img}" alt="步骤 ${s.n}">` : ''}
+       </div>
+     </div>`).join('');
+}
+
+async function doOpenWechat() {
+  const out = $('#wxTokenOut');
+  try {
+    if (out) out.textContent = '正在打开微信并切到前台…';
+    const r = await api('wx_open_miniprogram');
+    const d = (r && r.data) ? r.data : (r || {});
+    const opened = !!(d && d.miniprogram_open);
+    setBadge('#tokenBadge', opened ? '小程序已开' : '待打开小程序', opened ? 'ok' : 'warn');
+    if (out) {
+      out.textContent = opened
+        ? '小程序已在微信里打开，点「开始抓取 token」即可。'
+        : '微信已打开。请按「查看教程」的 5 步在微信里打开「宜新 NFC Reader Tool」，然后点「开始抓取 token」。';
+    }
+    log(out ? out.textContent : '', opened ? 'ok' : 'info');
+  } catch (e) {
+    if (out) out.textContent = '打开微信失败：' + e.message;
+  }
+}
+
 async function autoCheckCloudToken() {
   try {
     const r = await api('cloud_token_check');
@@ -2381,12 +2447,13 @@ async function autoCheckCloudToken() {
       return;
     }
     setBadge('#tokenBadge', d.expired ? '已过期' : '被拒', 'warn');
+    const steps = TOKEN_STEPS.map(s => `${s.n}. ${s.title}：${s.desc}`).join('\n');
     const ok = await confirmBox('云端 token 需要更新',
       (d.reason || '云端 token 不可用') + '\n\n' +
-      '是否现在自动获取？过程会打开微信并拉起「宜新 NFC Reader Tool」小程序，' +
-      '抓到新的登录态后自动填入（需要微信处于登录状态）。\n\n' +
-      (d.reachable === false ? '（当前网络似乎不通，抓到 token 也可能无法解算）\n\n' : '') +
-      '确定开始吗？');
+      '小程序界面是微信自绘的，程序没法替你点，需要你按下面 5 步手动打开一次：\n\n' +
+      steps +
+      '\n\n点「确认」后我会帮你打开微信；你按步骤点开后，程序会在后台持续尝试抓取' +
+      '（最多 2 分钟），抓到就自动填好。\n\n确定开始吗？');
     if (!ok) {
       log('已跳过自动获取云端 token', 'info');
       return;
@@ -2555,6 +2622,7 @@ async function init() {
   log('界面已就绪，正在连接后端…', 'ok');
   await loadBackend();
   log(`NFC Mini Studio ${state.version || ''} 已就绪`, 'ok');
+  renderTokenGuide();
   // 启动时自动校验云端 token：失效会弹窗征求同意，同意后打开微信小程序自动续期
   autoCheckCloudToken();
 }

@@ -22,6 +22,7 @@ import os
 import re
 import subprocess
 import time
+from pathlib import Path
 from typing import Dict, List, Optional
 
 IS_WINDOWS = True
@@ -160,21 +161,79 @@ def open_miniprogram(appid: str = TARGET_APPID,
         return {"ok": False, "error": "该功能仅支持 Windows 微信 PC 版"}
     uri = f"weixin://dl/business/?appid={appid}&path={path}"
     used = ""
-    try:
-        os.startfile(uri)                            # noqa: S606 - 交给系统协议处理器
-        used = "shellexecute"
-    except Exception as exc:                         # noqa: BLE001
-        exe = find_wechat_exe()
-        if not exe:
-            return {"ok": False, "error": f"拉起小程序失败：{exc}（也没找到微信主程序）",
-                    "uri": uri}
+    exe = find_wechat_exe()
+    # ① 首选：把 URI 当作参数直接交给微信主程序 —— 全程不经过浏览器/系统协议处理器。
+    #    （实测把 URI 交给 ShellExecute 时，遇到微信不认的路径会被默认浏览器接走。）
+    if exe:
         try:
             subprocess.Popen([exe, uri], close_fds=True)
             used = f"direct:{exe}"
-        except Exception as exc2:                    # noqa: BLE001
-            return {"ok": False, "error": f"拉起小程序失败：{exc2}", "uri": uri}
-    time.sleep(2.0)
-    return {"ok": True, "uri": uri, "via": used, "miniprogram_open": miniprogram_open()}
+        except Exception:                            # noqa: BLE001
+            used = ""
+    # ② 退路：系统协议处理器（个别微信版本注册得比较规矩）
+    if not used:
+        try:
+            os.startfile(uri)                        # noqa: S606 - 交给系统协议处理器
+            used = "shellexecute"
+        except Exception as exc:                     # noqa: BLE001
+            return {"ok": False, "error": f"拉起小程序失败：{exc}", "uri": uri}
+    time.sleep(2.5)
+    focused = focus_wechat()
+    opened = miniprogram_open()
+    return {"ok": True, "uri": uri, "via": used, "wechat_focused": focused,
+            "miniprogram_open": opened,
+            "hint": ("小程序已在微信中打开" if opened else
+                     "微信已就绪，但没能自动打开小程序：请在微信左侧「小程序」面板里点开"
+                     "「宜新 NFC Reader Tool」（只需点这一次），抓到登录态后会自动填入")}
+
+
+def focus_wechat() -> bool:
+    """把微信主窗口真正切到前台（并校验），方便用户按教程点开小程序。
+
+    坑：Windows 会拒绝后台进程直接抢前台，SetForegroundWindow 静默失败。
+    这里用「ALT 键技巧」解除前台锁定，并用 GetForegroundWindow 校验，
+    必要时先发一次微信默认的显示热键 Ctrl+Alt+W 把收进托盘的窗口叫出来。
+    """
+    if not IS_WINDOWS:
+        return False
+    try:
+        import ctypes
+
+        user32 = ctypes.windll.user32
+
+        def _hwnd() -> int:
+            for title in ("微信", "WeChat"):
+                h = user32.FindWindowW(None, title)
+                if h:
+                    return int(h)
+            return 0
+
+        hwnd = _hwnd()
+        if not hwnd:                                # 可能收进托盘了：按默认热键叫出来
+            user32.keybd_event(0x11, 0, 0, 0)       # Ctrl down
+            user32.keybd_event(0x12, 0, 0, 0)       # Alt down
+            user32.keybd_event(0x57, 0, 0, 0)       # W down
+            time.sleep(0.05)
+            user32.keybd_event(0x57, 0, 2, 0)
+            user32.keybd_event(0x12, 0, 2, 0)
+            user32.keybd_event(0x11, 0, 2, 0)
+            time.sleep(1.2)
+            hwnd = _hwnd()
+        if not hwnd:
+            return False
+        for _ in range(3):
+            user32.ShowWindow(hwnd, 9)               # SW_RESTORE
+            user32.BringWindowToTop(hwnd)
+            user32.keybd_event(0x12, 0, 0, 0)        # ALT down（解除前台锁定）
+            user32.SetForegroundWindow(hwnd)
+            user32.keybd_event(0x12, 0, 2, 0)
+            time.sleep(0.45)
+            if int(user32.GetForegroundWindow()) == hwnd:
+                return True
+        return False
+    except Exception:                                # noqa: BLE001
+        pass
+    return False
 
 
 def miniprogram_open() -> bool:

@@ -218,6 +218,21 @@ input[type=range]::-webkit-slider-thumb { width: 17px; height: 17px; margin-top:
 .log-head, .modal h3 { font-size: 13.5px; }
 .log-body { font-size: 11.5px; line-height: 1.6; }
 .faq { border-radius: var(--r-md); padding: 10px 14px; }
+/* 云端 token 教程：编号步骤 + 实拍图 */
+.guide-steps { display: flex; flex-direction: column; gap: 12px; }
+.guide-step { display: flex; gap: 12px; align-items: flex-start; }
+.guide-step .g-n {
+  flex: none; width: 26px; height: 26px; border-radius: 50%;
+  display: grid; place-items: center; font-size: 13px; font-weight: 600;
+  color: #fff; background: var(--accent);
+}
+.guide-step .g-body { min-width: 0; }
+.guide-step .g-body b { font-size: 13px; }
+.guide-step .g-body p { margin: 3px 0 6px; }
+.guide-step .g-img {
+  max-width: 260px; max-height: 180px; border-radius: 10px;
+  border: 1px solid var(--edge); display: block;
+}
 .split { border-top: 1px solid var(--mac-sep); }
 
 /* 滚动条：macOS 细圆条 */

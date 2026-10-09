@@ -532,10 +532,12 @@
             </label>
           </div>
           <div class="row wrap mt">
-            <button class="btn primary" id="btnWxToken">自动获取 token（打开微信小程序）</button>
+            <button class="btn primary" id="btnWxToken">开始抓取 token</button>
+            <button class="btn" id="btnOpenWechat">打开微信</button>
             <button class="btn ghost" id="btnVerifyToken">验证 token</button>
+            <button class="btn ghost" id="btnTokenGuide">查看教程</button>
             <span class="badge" id="tokenBadge">未校验</span>
-            <span class="hint grow" id="wxTokenOut">启动时会自动校验 token；失效后点这里会打开微信并拉起「宜新 NFC Reader Tool」，抓到登录态自动填入（需微信已登录）。</span>
+            <span class="hint grow" id="wxTokenOut">启动时会自动校验 token。失效时：点「打开微信」→ 按教程在小程序里打开「宜新 NFC Reader Tool」→ 点「开始抓取 token」，程序会自动填入。（小程序界面无法被程序自动点击，这几步需要你手动点）</span>
           </div>
           <p class="hint">token 来源：微信小程序「宜新 NFC Reader Tool」登录账号后，请求头 NICETHEME 的值（登录态、会过期，需自行获取粘贴）。密钥库接口用的厂商内置凭据已随软件内置，无需填写；未填 token 时云端会跳过并自动降级本地 mfkey32。</p>
 
@@ -700,6 +702,22 @@
 
       <!-- ==================== 常见问题 ==================== -->
       <section class="view" id="view-help">
+        <!-- 云端 token 获取教程（含实拍步骤图） -->
+        <div class="card glass" id="tokenGuideCard">
+          <div class="card-head">
+            <h2>教程：怎么拿到云端 token</h2>
+            <span class="badge" id="guideState">步骤 5 步</span>
+          </div>
+          <p class="hint">云端破解要的是你在「宜新 NFC Reader Tool」小程序里的<b>登录态 token</b>。
+            小程序界面是微信自绘的，程序无法替你点击，所以请按下面 5 步操作——只要小程序一打开，
+            程序就能自动把 token 抓出来填好。</p>
+          <div class="guide-steps" id="tokenGuide"></div>
+          <div class="row wrap mt">
+            <button class="btn primary" id="btnGuideOpenWechat">打开微信</button>
+            <button class="btn" id="btnGuideFetch">我已打开小程序，开始抓取</button>
+            <span class="badge" id="guideBadge">未校验</span>
+          </div>
+        </div>
         <div class="card glass">
           <div class="card-head"><h2>常见问题</h2><span class="badge">FAQ</span></div>
           <details class="faq"><summary>云端破解为什么有时候解不出来？</summary>
@@ -707,7 +725,14 @@
           <details class="faq"><summary>为什么读卡慢、写卡快？</summary>
             <p>读卡要逐块采集 + 云端返回几百把候选逐把验证（官方也是分批试），所以慢；写卡用的是 <b>0x16 极速档</b>，写完立即返回，所以快。</p></details>
           <details class="faq"><summary>云端 token 会过期吗？</summary>
-            <p>会。recovery 接口要的是微信登录态 token，约 1 天过期。破解页点「从微信小程序自动获取 token」可一键重新抓取填好；不填时云端会跳过、降级本地算法。</p></details>
+            <p>会。recovery 接口要的是微信登录态 token，约 1 天过期。<b>每次打开软件都会自动校验一遍</b>；
+            一旦失效会弹窗提醒，并按「教程：怎么拿到云端 token」那 5 步引导你在微信里打开小程序，
+            然后点「开始抓取 token」自动填入（小程序界面是微信自绘的，程序没法替你点）。
+            不填 token 时云端会跳过、自动降级本地 mfkey32。</p></details>
+          <details class="faq"><summary>为什么点「一键扫描设备」一台都搜不到？</summary>
+            <p>最常见就是<b>读卡器的蓝牙被别处占着</b>：微信小程序打开时通常会自动连上读卡器，
+            这时桌面端扫不到它。请在小程序里点「断开连接」（或关掉小程序窗口）后再扫描；
+            也可能是读卡器没开机或离得太远。</p></details>
           <details class="faq"><summary>写卡提示里的「滚动码」是什么？</summary>
             <p>有些小区卡每次刷卡会改掉某一两个块（滚动码）。直接克隆可能导致门禁失效。用卡夹页的「数据对比」可以看出是不是滚动码卡。</p></details>
           <details class="faq"><summary>格式化 / 封卡会不会有风险？</summary>
