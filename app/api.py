@@ -27,8 +27,8 @@ from .crack_engine import (AUTH_HEADER, ENGINE_LABELS, MODE_CHOICES, MODE_CLOUD,
 from .device import CRACK_CHAIN, CRACK_LABELS, NfcDevice
 from .paths import (APP_TITLE, APP_VERSION, sync_wallpapers, wallpapers_dir,
                     web_assets_dir, crack_cache_file)
-from .protocol import (DEFAULT_KEY, ERR, PHONE_WRITE_MODES, NfcError, WRITE_FORMATS,
-                       hex_to_bytes, phone_nfc_plan, resolve_write_mode,
+from .protocol import (DEFAULT_KEY, ERR, KEY_CACHE_MAX, PHONE_WRITE_MODES, NfcError,
+                       WRITE_FORMATS, hex_to_bytes, phone_nfc_plan, resolve_write_mode,
                        write_mode_table)
 from .store import CardBox, Settings
 from .keybox import KeyBox
@@ -767,7 +767,14 @@ class Api:
         batch_state = {"ok": bool(self.settings.data.get("crack_batch_auth", True))}
         # 设备端批量验证（0x40 灌密钥表 + 0x41 让设备自己试）：候选表够大时优先走它，
         # 固件明确拒绝或异常就整体退回主机逐把验证。
-        device_state = {"ok": bool(self.settings.data.get("crack_device_cache", True))}
+        try:
+            _caps = self.device.capabilities() or {}
+        except Exception:                          # noqa: BLE001
+            _caps = {}
+        # 手机读卡器没有 0x40/0x41（key_cache），能力矩阵里就是 False，
+        # 这里必须一起看，否则会白跑一轮设备端批量验证再报「不可用」。
+        device_state = {"ok": bool(self.settings.data.get("crack_device_cache", True))
+                        and bool(_caps.get("key_cache", True))}
         DEVICE_MIN_KEYS = 8      # 设备端批量验证实测比主机逐把快 ~15x，8 把起就值得走
 
         def _try(sector: int, key_hex: str, kt: int) -> bool:
@@ -1233,6 +1240,21 @@ class Api:
         def work():
             mode_key, conf = resolve_write_mode(mode)
             key, kt, _src = self._resolve_key(key_hex, key_type, block=0)
+            nonlocal card_no, check_card_no
+            try:
+                caps = self.device.capabilities() or {}
+            except Exception:                      # noqa: BLE001
+                caps = {}
+            if not caps.get("read_id_card", True):
+                # 手机读卡器没有 125kHz 天线：0x0C 写卡号 / 0x26 读 ID 卡都做不了，
+                # 强行校验卡号只会得到「卡号校验未通过」。这里直接跳过卡号环节，
+                # 只做 0x27 生成转接卡 + 写 IC 数据（小程序第二步/第三步）。
+                if card_no:
+                    self._on_device_log(
+                        "warn", "手机读卡器读不了 125kHz ID 卡，已自动跳过「写卡号」步骤，"
+                                "直接写 IC 数据")
+                card_no = ""
+                check_card_no = False
             started = time.time()
             self._progress_push(job, 0, 1, f"准备{conf['label']}…")
             res = self.device.write_card(
@@ -1284,6 +1306,21 @@ class Api:
                 raise NfcError(f"手机 / 手环 NFC 档位仅支持 "
                                f"{' / '.join(PHONE_WRITE_MODES)}，当前 {mode}", 15)
             key, kt, _src = self._resolve_key(key_hex, key_type, block=0)
+            nonlocal card_no, check_card_no
+            try:
+                caps = self.device.capabilities() or {}
+            except Exception:                      # noqa: BLE001
+                caps = {}
+            if not caps.get("read_id_card", True):
+                # 手机读卡器没有 125kHz 天线：0x0C 写卡号 / 0x26 读 ID 卡都做不了，
+                # 强行校验卡号只会得到「卡号校验未通过」。跳过卡号环节，
+                # 只做 0x27 生成转接卡 + 写 IC 数据（小程序第二、三步）。
+                if card_no:
+                    self._on_device_log(
+                        "warn", "手机读卡器读不了 125kHz ID 卡，已跳过「写卡号」步骤，"
+                                "直接生成转接卡并写 IC 数据")
+                card_no = ""
+                check_card_no = False
             started = time.time()
             self._progress_push(job, 0, 1, "准备手机 / 手环 NFC 写录…")
             res = self.device.write_phone_nfc(
@@ -1325,6 +1362,22 @@ class Api:
     def auto_identify(self) -> dict:
         """B · 0x38 自动识别卡片（单字节），返回卡号 / 卡类型 / 卡代码 / 设施码。"""
         def work():
+            try:
+                caps = self.device.capabilities() or {}
+            except Exception:                      # noqa: BLE001
+                caps = {}
+            if not caps.get("read_id_card", True):
+                # 手机通道没有 0x38 的低频识别能力：退化成 0x11 寻卡，
+                # 至少把 13.56MHz 的卡型 / UID / SAK 识别出来。
+                info = self.device.find_card()
+                info["auto_identify_partial"] = True
+                info["auto_identify_note"] = ("手机读卡器只支持 13.56 MHz 卡（0x11 寻卡）；"
+                                              "125kHz ID 卡的自动识别需要原厂读卡器硬件")
+                self._last_card = info
+                self._on_device_log(
+                    "ok", f"识别卡片：{info.get('uid')} · {info.get('class_label')}"
+                          f"（手机通道仅支持 13.56MHz）")
+                return info
             info = self.device.auto_identify()
             self._last_card = dict(self.device._last_card or {})
             self._last_card["ts"] = time.strftime("%Y-%m-%d %H:%M:%S")
