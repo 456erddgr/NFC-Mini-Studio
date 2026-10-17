@@ -334,11 +334,103 @@ class Api:
             return devs
         return self._guard(work)
 
+    def scan_all(self, timeout: float = 6.0, ble: bool = True,
+                 pcsc: bool = True, net: bool = True) -> dict:
+        """三通道一起扫：蓝牙原厂读卡器 / 通用 PC/SC 读卡器 / 手机读卡器。"""
+        return self._guard(lambda: self.device.scan_all(
+            float(timeout), with_ble=bool(ble), with_pcsc=bool(pcsc),
+            with_net=bool(net)))
+
+    def pcsc_probe(self) -> dict:
+        """检测 PC/SC 环境：服务是否启动、有没有读卡器、怎么修。"""
+        return self._guard(self.device.pcsc_probe)
+
+    def net_probe(self, timeout: float = 2.0) -> dict:
+        """检测局域网里的手机读卡器。"""
+        return self._guard(lambda: self.device.net_probe(float(timeout)))
+
+    def phone_reader_info(self) -> dict:
+        """给「手机当读卡器」页面的信息：本机 IP、端口、下载 APK 的位置。"""
+        from .transport_net import BEACON_PORT, TCP_PORT, local_ip
+
+        apk = ""
+        try:
+            from .paths import app_dir
+
+            for cand in (app_dir() / "android" / "NFCMiniReader.apk",
+                         app_dir().parent / "android" / "NFCMiniReader.apk",
+                         app_dir() / "NFCMiniReader.apk"):
+                if cand.exists():
+                    apk = str(cand)
+                    break
+        except Exception:                              # noqa: BLE001
+            apk = ""
+        return self._ok({
+            "local_ip": local_ip(),
+            "beacon_port": BEACON_PORT,
+            "tcp_port": TCP_PORT,
+            "apk_path": apk,
+            "has_apk": bool(apk),
+            "steps": [
+                "在手机浏览器打开本机下载地址，或直接把 APK 传到手机安装",
+                "打开 App，点「启动读卡服务」（首次需授予 NFC 权限）",
+                "确保手机与电脑连同一个 Wi-Fi",
+                "回到本页面点「搜索手机读卡器」，选中后连接",
+                "之后所有读卡 / 写卡功能都用手机的天线执行",
+            ],
+            "limits": [
+                "手机没有 125 kHz 低频天线：读不了 ID 卡（0x26 不可用）",
+                "手机做不了固件级随机数采集：破解类命令需原厂读卡器或桌面端算法",
+                "手机天线小，卡片要贴准 NFC 区域并保持贴近",
+            ],
+        })
+
+    def open_phone_apk_folder(self) -> dict:
+        """在资源管理器里打开手机读卡器 APK 所在目录（找不到就给出提示）。"""
+        def work():
+            import os
+            import subprocess
+            import sys
+
+            apk = ""
+            info = self.phone_reader_info()
+            if isinstance(info, dict):
+                payload = info.get("data") if isinstance(info.get("data"), dict) else info
+                apk = (payload or {}).get("apk_path") or ""
+            if not apk:
+                return {"ok": False, "hint": "APK 还没有打包出来。请先运行 build_android.py 生成 "
+                                             "android/NFCMiniReader.apk，或用手机浏览器下载安装。"}
+            folder = str(Path(apk).parent)
+            try:
+                if sys.platform.startswith("win"):
+                    os.startfile(folder)                     # noqa: S606
+                elif sys.platform == "darwin":
+                    subprocess.Popen(["open", folder])
+                else:
+                    subprocess.Popen(["xdg-open", folder])
+            except Exception as exc:                          # noqa: BLE001
+                return {"ok": False, "hint": f"打开目录失败：{exc}；APK 位于 {apk}"}
+            return {"ok": True, "hint": f"已打开 {folder}", "apk_path": apk}
+        return self._guard(work)
+
     def connect(self, mac: str) -> dict:
         def work():
             info = self.device.connect(mac)
             return info
         return self._guard(work)
+
+    def connect_pcsc(self, reader: str = "") -> dict:
+        """连接通用 PC/SC 读卡器（reader 为空时用第一台）。"""
+        return self._guard(lambda: self.device.connect_pcsc(str(reader or "")))
+
+    def connect_net(self, address: str, timeout: float = 6.0) -> dict:
+        """连接手机读卡器，address 形如 192.168.1.5:8765。"""
+        return self._guard(lambda: self.device.connect_net(
+            str(address or ""), timeout=float(timeout)))
+
+    def capabilities(self) -> dict:
+        """当前通道能力矩阵（前端据此禁用点不了的功能）。"""
+        return self._ok(self.device.capabilities())
 
     def disconnect(self) -> dict:
         def work():

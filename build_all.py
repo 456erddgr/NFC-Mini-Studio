@@ -3,9 +3,17 @@
 NFC Mini Studio · 一键构建脚本
 ==============================
 用法：
-    python build_all.py            # 全量：主程序 → payload → 安装程序
+    python build_all.py            # 全量：主程序 → payload → 安装程序 → APK
     python build_all.py app        # 只构建主程序（dist/NFC Mini Studio/）
+    python build_all.py payload    # 只把主程序产物同步为安装包数据
     python build_all.py installer  # 只构建安装程序（需先有 installer/payload）
+    python build_all.py android    # 只构建 Android APK（需 JDK17 + SDK34 + Gradle 8.7）
+    python build_all.py --no-android  # 全量但跳过 APK
+
+产物：
+    dist/NFC Mini Studio/NFC Mini Studio.exe           绿色版主程序
+    installer/dist/NFC Mini Studio 安装程序.exe        一键安装包
+    android/NFCMiniReader.apk                          手机读卡器 APK
 """
 from __future__ import annotations
 
@@ -19,11 +27,12 @@ APP_NAME = "NFC Mini Studio"
 SETUP_NAME = "NFC Mini Studio 安装程序"
 ICON = ROOT / "assets" / "app.ico"
 TMP = ROOT / "build_tmp"
+APK_OUT = ROOT / "android" / "NFCMiniReader.apk"
 
 
-def run(cmd: list[str], tag: str) -> int:
+def run(cmd: list[str], tag: str, cwd: Path | None = None) -> int:
     print(f"[{tag}] {' '.join(cmd[:6])} …")
-    proc = subprocess.run(cmd, cwd=str(ROOT), capture_output=True,
+    proc = subprocess.run(cmd, cwd=str(cwd or ROOT), capture_output=True,
                           text=True, encoding="utf-8", errors="replace")
     if proc.returncode != 0:
         print(proc.stdout[-3000:])
@@ -89,18 +98,47 @@ def build_installer() -> int:
     return rc
 
 
+def build_android() -> int:
+    """Android APK：调用 build_android.py（内部自动镜像到 ASCII 路径）。"""
+    script = ROOT / "build_android.py"
+    if not script.is_file():
+        print("[android] 缺少 build_android.py")
+        return 1
+    rc = run([sys.executable, str(script)], "android")
+    if rc == 0 and APK_OUT.is_file():
+        size = APK_OUT.stat().st_size / 1024 / 1024
+        print(f"[android] 完成  →  {APK_OUT.name}  ({size:.2f} MB)")
+    else:
+        print("[android] 失败")
+    return rc
+
+
+def _has_flag(flag: str) -> bool:
+    return flag in sys.argv[1:]
+
+
 def main() -> int:
-    step = sys.argv[1] if len(sys.argv) > 1 else "all"
-    if step in ("all", "app"):
+    args = [a for a in sys.argv[1:] if not a.startswith("--")]
+    step = args[0] if args else ("all" if not _has_flag("--no-android") else "desktop")
+
+    if step in ("all", "desktop", "app"):
         if build_app() != 0:
             return 1
-    if step in ("all", "app", "payload"):
+    if step in ("all", "desktop", "app", "payload"):
         if sync_payload() != 0:
             return 1
-    if step in ("all", "installer"):
+    if step in ("all", "desktop", "installer"):
         if build_installer() != 0:
             return 1
-    print("全部完成")
+    if step in ("all", "android") and not _has_flag("--no-android"):
+        if build_android() != 0:
+            return 1
+
+    print("\n全部完成")
+    print(f"  绿色版      dist/{APP_NAME}/{APP_NAME}.exe")
+    print(f"  安装程序    installer/dist/{SETUP_NAME}.exe")
+    if APK_OUT.is_file():
+        print(f"  手机 APK    android/{APK_OUT.name}")
     return 0
 
 

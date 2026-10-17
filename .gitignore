@@ -27,3 +27,10 @@ _backup/
 # ---- 运行时同步到前端目录的用户壁纸（属于用户数据，不入库）----
 app/web/wallpapers/*
 !app/web/wallpapers/.gitkeep
+
+# ---- Android 构建产物（源码入库，产物不入库；APK 单独放 android/NFCMiniReader.apk）----
+android/app/build/
+android/build/
+android/.gradle/
+android/local.properties
+android/app/release/

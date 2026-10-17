@@ -105,6 +105,23 @@ def _verify_ui(window, api) -> None:
         " const el = document.getElementById('view-' + v);"
         " return v + ':' + (el && el.classList.contains('is-active')); }))"))
 
+    # 1.5) 三通道切换：点「通用读卡器 / 手机读卡器」→ 对应 pane 必须真的显示，
+    #      另外两个必须隐藏；再切回蓝牙。新增通道最容易漏的就是这段绑定。
+    step("conn_tabs", ev(
+        "JSON.stringify(['ble','pcsc','net'].map(function(c) {"
+        " const btn = document.querySelector('#connSeg [data-conn=\"' + c + '\"]');"
+        " if (!btn) return c + ':no-btn';"
+        " btn.click();"
+        " const panes = {ble:'paneBle', pcsc:'panePcsc', net:'paneNet'};"
+        " const out = {};"
+        " for (const k in panes) {"
+        "   const el = document.getElementById(panes[k]);"
+        "   out[k] = el ? !el.classList.contains('is-hidden') : 'missing';"
+        " }"
+        " const active = document.querySelectorAll('#connSeg .seg-item.is-active').length;"
+        " return c + ':' + JSON.stringify({shown: out[c], active: active, all: out});"
+        " }))"))
+
     # 2) 扫描：点按钮 → 等 → 列表里必须真有设备
     step("click_scan", ev(
         "(() => { const b = document.getElementById('btnScan');"

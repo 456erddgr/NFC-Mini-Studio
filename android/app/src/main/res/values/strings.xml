@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NFC 手机读卡器</string>
+    <string name="subtitle">把手机变成电脑的通用 NFC 读卡器</string>
+
+    <string name="section_status">运行状态</string>
+    <string name="section_network">网络信息</string>
+    <string name="section_guide">使用步骤</string>
+    <string name="section_log">运行日志</string>
+
+    <string name="nfc_checking">正在检测 NFC…</string>
+    <string name="nfc_ready">NFC 已就绪 ✓</string>
+    <string name="nfc_disabled">NFC 未开启，请点下方「打开 NFC 设置」</string>
+    <string name="nfc_unsupported">此手机不支持 NFC，无法作为读卡器使用</string>
+
+    <string name="card_none">未检测到卡片，请把卡贴到手机背面</string>
+    <string name="card_present">已识别卡片：%1$s</string>
+
+    <string name="service_stopped">读卡服务已停止</string>
+    <string name="service_running">读卡服务运行中 ✓</string>
+
+    <string name="label_ip">本机 IP</string>
+    <string name="label_tcp">TCP 端口</string>
+    <string name="label_clients">已连接电脑</string>
+
+    <string name="btn_start">启动读卡服务</string>
+    <string name="btn_stop">停止读卡服务</string>
+    <string name="btn_nfc_settings">打开 NFC 设置</string>
+
+    <string name="guide_body">1. 确认手机已开启 NFC（设置 → 更多连接 → NFC）。\n2. 手机和电脑连接到同一个 Wi-Fi。\n3. 点上方「启动读卡服务」，服务会自动运行。\n4. 在电脑上打开「NFC Mini Studio」→「设备」→ 选择「手机读卡器」→ 点「搜索手机读卡器」，选中本机并连接。\n5. 之后把 NFC 卡贴到手机背面的 NFC 感应区，电脑上即可读卡、写卡、导出整卡数据。\n\n注意：手机 NFC 只支持 13.56 MHz 的 IC / UID 卡（Mifare Classic 等），不支持 125 kHz 的 ID 卡；破解类功能需要原厂蓝牙读卡器。手机屏幕需保持常亮，本应用已自动保持常亮。</string>
+</resources>

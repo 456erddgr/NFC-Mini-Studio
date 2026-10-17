@@ -176,6 +176,7 @@ def main() -> int:
     alpha = parse(steps.get("alpha_slider")) or {}
     drawer = parse(steps.get("log_drawer")) or {}
     wall_custom = parse(steps.get("wall_custom_after")) or {}
+    conn_tabs = parse(steps.get("conn_tabs")) or []
 
     checks: list[tuple[bool, str, str]] = []
 
@@ -223,6 +224,28 @@ def main() -> int:
                           f"selFile={wall_custom.get('selFile')!r}")
     ck(wall_custom.get("sel") == 1,
        "自定义壁纸选中态唯一", f"选中 {wall_custom.get('sel')} 个")
+
+    # 三通道：每一项都必须 shown 是自己、active 恰好 1 个
+    tab_ok = bool(conn_tabs)
+    tab_detail = []
+    for line in conn_tabs or []:
+        txt = str(line)
+        if ":no-btn" in txt:
+            tab_ok = False
+            tab_detail.append(txt)
+            continue
+        name, _, payload = txt.partition(":")
+        try:
+            obj = json.loads(payload)
+        except Exception:
+            tab_ok = False
+            tab_detail.append(txt)
+            continue
+        ok = obj.get("shown") is True and obj.get("active") == 1
+        tab_ok = tab_ok and ok
+        tab_detail.append(f"{name}={'OK' if ok else 'FAIL'}")
+    ck(tab_ok, "三通道切换（蓝牙/通用读卡器/手机读卡器）",
+       " ".join(tab_detail) or "无数据")
 
     if args.exe:
         root = Path(args.exe).resolve().parent

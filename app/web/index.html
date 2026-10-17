@@ -119,7 +119,7 @@
               <input type="range" id="rngSpin" min="0" max="24" value="6">
             </label>
             <p class="device-caption">NFC Mini 2.0 · 蓝牙 BLE 5.0 · 13.56 MHz</p>
-            <p class="hint center">官方连接方式仅蓝牙无线。</p>
+            <p class="hint center">原厂读卡器走蓝牙；也支持通用 PC/SC 读卡器与手机读卡器。</p>
           </div>
 
           <!-- 连接 -->
@@ -129,16 +129,22 @@
               <span class="badge" id="scanBadge">就绪</span>
             </div>
 
-            <div class="conn-mode">
-              <span class="conn-mode-ico">ᛒ</span>
-              <div>
-                <b>蓝牙无线</b>
-                <p>NFC Mini 2.0 官方通信方式。连接前请先让读卡器与手机微信断开。</p>
-              </div>
-              <span class="badge ok">官方协议</span>
+            <div class="seg three" id="connSeg">
+              <button class="seg-item is-active" data-conn="ble">蓝牙原厂</button>
+              <button class="seg-item" data-conn="pcsc">通用读卡器</button>
+              <button class="seg-item" data-conn="net">手机读卡器</button>
             </div>
 
+            <!-- ========== 通道 1：蓝牙原厂 ========== -->
             <div class="pane" id="paneBle">
+              <div class="conn-mode">
+                <span class="conn-mode-ico">ᛒ</span>
+                <div>
+                  <b>蓝牙无线 · 原厂 NFC Mini</b>
+                  <p>官方通信方式，支持全部固件功能（含低频 ID 卡、破解采集、封卡）。</p>
+                </div>
+                <span class="badge ok">全功能</span>
+              </div>
               <div class="row">
                 <button class="btn primary lg" id="btnScan">一键扫描设备</button>
                 <button class="btn" id="btnQuickConnect">扫描并连接</button>
@@ -148,6 +154,85 @@
                 <li class="empty">点击「一键扫描设备」开始搜索附近的读卡器</li>
               </ul>
               <p class="hint">设备未出现时，请确认读卡器已开机、未被手机微信占用，并靠近电脑蓝牙范围。</p>
+            </div>
+
+            <!-- ========== 通道 2：通用 PC/SC 读卡器 ========== -->
+            <div class="pane is-hidden" id="panePcsc">
+              <div class="conn-mode">
+                <span class="conn-mode-ico">▤</span>
+                <div>
+                  <b>通用 PC/SC 读卡器</b>
+                  <p>ACR122U / ACR1252 / ACR1255 / PN532 等标准读卡器，走系统 PC/SC 服务。</p>
+                </div>
+                <span class="badge info">兼容模式</span>
+              </div>
+
+              <div class="probe-box" id="pcscProbeBox">
+                <div class="probe-line">
+                  <span class="probe-dot" id="pcscDot"></span>
+                  <b id="pcscState">尚未检测</b>
+                </div>
+                <p class="probe-hint" id="pcscHint">点「检测 PC/SC 环境」查看系统服务与读卡器状态。</p>
+                <ul class="probe-readers" id="pcscReaders"></ul>
+                <div class="row wrap" id="pcscFixRow" style="display:none">
+                  <button class="btn sm" id="btnPcscFix">复制修复命令</button>
+                  <span class="hint">管理员 PowerShell 里执行</span>
+                </div>
+              </div>
+
+              <div class="row">
+                <button class="btn primary lg" id="btnPcscScan">扫描读卡器</button>
+                <button class="btn" id="btnPcscProbe">检测 PC/SC 环境</button>
+              </div>
+              <ul class="dev-list" id="pcscList">
+                <li class="empty">点「扫描读卡器」列出插在电脑上的 PC/SC 读卡器</li>
+              </ul>
+              <p class="hint">
+                兼容模式可做：寻卡 / 读块 / 写块 / 写 UID / 整卡导出 / 密钥认证。<br>
+                做不到：低频 ID 卡（125 kHz）、固件级随机数采集破解、封卡锁卡、设备端密钥表。
+              </p>
+            </div>
+
+            <!-- ========== 通道 3：手机当读卡器 ========== -->
+            <div class="pane is-hidden" id="paneNet">
+              <div class="conn-mode">
+                <span class="conn-mode-ico">▣</span>
+                <div>
+                  <b>手机当读卡器</b>
+                  <p>安卓手机装 NFCMiniReader，用手机 NFC 天线替电脑读卡，走同一个 Wi-Fi。</p>
+                </div>
+                <span class="badge info">需装 App</span>
+              </div>
+
+              <div class="phone-guide">
+                <div class="phone-guide-head">
+                  <b>三步把手机变成读卡器</b>
+                  <button class="btn ghost sm" id="btnPhoneApk">下载 APK</button>
+                </div>
+                <ol class="phone-steps" id="phoneSteps">
+                  <li>在手机安装 NFCMiniReader.apk 并打开，授予 NFC 权限</li>
+                  <li>点「启动读卡服务」，让手机与电脑连同一个 Wi-Fi</li>
+                  <li>回到这里点「搜索手机读卡器」，选中后连接即可</li>
+                </ol>
+                <div class="phone-net">
+                  <div class="kv"><label>本机 IP</label><b id="kvLocalIp" class="mono">—</b></div>
+                  <div class="kv"><label>通信端口</label><b id="kvTcpPort" class="mono">—</b></div>
+                  <div class="kv"><label>发现端口</label><b id="kvBeaconPort" class="mono">—</b></div>
+                </div>
+                <ul class="phone-limits" id="phoneLimits"></ul>
+              </div>
+
+              <div class="row">
+                <button class="btn primary lg" id="btnNetScan">搜索手机读卡器</button>
+                <button class="btn" id="btnNetManual">手动输入地址</button>
+              </div>
+              <div class="row" id="netManualRow" style="display:none">
+                <input class="input mono" id="netAddress" placeholder="192.168.1.5:8765">
+                <button class="btn" id="btnNetConnect">连接</button>
+              </div>
+              <ul class="dev-list" id="netList">
+                <li class="empty">点「搜索手机读卡器」在局域网里找已启动服务的手机</li>
+              </ul>
             </div>
           </div>
         </div>
@@ -160,13 +245,14 @@
           <div class="kv-grid" id="devInfo">
             <div class="kv"><label>连接状态</label><b id="kvState">未连接</b></div>
             <div class="kv"><label>连接通道</label><b id="kvMode">—</b></div>
-            <div class="kv"><label>蓝牙 MAC</label><b id="kvMac" class="mono">—</b></div>
+            <div class="kv"><label>设备地址</label><b id="kvMac" class="mono">—</b></div>
             <div class="kv"><label>固件版本</label><b id="kvVer">—</b></div>
             <div class="kv"><label>设备序列号</label><b id="kvSn" class="mono">—</b></div>
             <div class="kv"><label>设备电量</label><b id="kvBattery">—</b></div>
             <div class="kv"><label>固件型号</label><b id="kvFwModel">—</b></div>
             <div class="kv"><label>卡上芯片</label><b id="kvChip">—</b></div>
           </div>
+          <div class="cap-grid" id="capGrid"></div>
           <div class="row mt">
             <button class="btn" id="btnRefreshInfo">刷新信息</button>
             <button class="btn danger" id="btnDisconnect">断开连接</button>
@@ -661,7 +747,7 @@
 
             <div class="about">
               <h3>关于</h3>
-              <p>NFC Mini Studio <b id="aboutVer">2.6.0</b></p>
+              <p>NFC Mini Studio <b id="aboutVer">3.0.0</b></p>
               <p class="hint">协议来自 NFC Mini 2.0 微信小程序 BLE 私有协议逆向，仅供自有设备研究使用。</p>
             </div>
           </div>

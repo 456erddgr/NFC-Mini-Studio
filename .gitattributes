@@ -1,0 +1,30 @@
+# 统一换行：源码用 LF 入库，Windows 上检出为 CRLF
+* text=auto
+*.py    text eol=lf
+*.js    text eol=lf
+*.css   text eol=lf
+*.html  text eol=lf
+*.md    text eol=lf
+*.gradle text eol=lf
+*.java  text eol=lf
+*.xml   text eol=lf
+*.json  text eol=lf
+*.txt   text eol=lf
+
+# 二进制：不要做任何换行转换
+*.exe   binary
+*.dll   binary
+*.apk   binary
+*.bin   binary
+*.png   binary
+*.jpg   binary
+*.jpeg  binary
+*.ico   binary
+*.mp3   binary
+*.zip   binary
+*.whl   binary
+
+# GitHub 语言统计：不要把前端/文档算成主要语言
+app/web/**        linguist-vendored=false
+docs/**           linguist-documentation
+android/**/*.java linguist-language=Java

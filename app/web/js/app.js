@@ -647,19 +647,30 @@ async function doQuickConnect() {
   }
 }
 
-/* ---------------------------------------------------------- Bluetooth BLE connection */
+/* ---------------------------------------------------------- 连接后 UI 统一填充 */
 function applyConnectedUI(snap, address, name) {
   snap = snap || {};
+  const mode = snap.mode || snap.transport || state.mode || 'ble';
+  const modeText = { ble: '蓝牙无线 · BLE', pcsc: '通用读卡器 · PC/SC', net: '手机读卡器 · TCP' };
   setLed('on');
   setText('#kvState', '已连接');
-  setText('#kvMode', '蓝牙无线 · BLE');
+  setText('#kvMode', modeText[mode] || '已连接');
   setText('#kvMac', snap.mac || address || '—');
   setBadge('#connBadge', '已连接', 'ok');
   const pill = $('#connPill');
   if (pill) {
     pill.classList.add('on');
     const s = pill.querySelector('span');
-    if (s) s.textContent = snap.transport_label || name || '蓝牙已连接';
+    if (s) s.textContent = snap.transport_label || name || '已连接';
+  }
+  // 兼容模式没有固件信息，直接由通道数量/ATR 补齐，避免显示一排「—」
+  if (mode !== 'ble') {
+    setText('#kvVer', '—（兼容通道无固件）');
+    setText('#kvSn', '—');
+    setText('#kvFwModel', mode === 'pcsc' ? 'PC/SC 通用读卡器' : '手机 NFC 读卡器');
+    const batRow = $('#kvBattery') ? $('#kvBattery').closest('.kv') : null;
+    if (batRow) batRow.style.display = 'none';
+    return;
   }
   api('device_info').then(info => {
     setText('#kvVer', info.version || '—');
@@ -717,8 +728,249 @@ async function doRefreshInfo() {
   } catch (e) { toast(e.message, 'err'); }
 }
 
-function switchConnTab() {
-  /* Bluetooth BLE is the only official transport; kept for old event wiring. */
+function switchConnTab(name) {
+  const key = name || 'ble';
+  $$('#connSeg .seg-item').forEach(b => b.classList.toggle('is-active', b.dataset.conn === key));
+  ['ble', 'pcsc', 'net'].forEach(k => {
+    const pane = $('#pane' + k.charAt(0).toUpperCase() + k.slice(1));
+    if (pane) pane.classList.toggle('is-hidden', k !== key);
+  });
+  if (key === 'pcsc') refreshPcscProbe();
+  if (key === 'net') loadPhoneReaderInfo();
+}
+
+/* ================================================================
+   通用 PC/SC 读卡器通道
+   ================================================================ */
+async function refreshPcscProbe(silent) {
+  const dot = $('#pcscDot');
+  const stateEl = $('#pcscState');
+  const hintEl = $('#pcscHint');
+  const fixRow = $('#pcscFixRow');
+  try {
+    if (dot) dot.className = 'probe-dot';
+    if (stateEl) stateEl.textContent = '检测中…';
+    const p = await api('pcsc_probe');
+    const readers = (p.readers || []);
+    if (dot) dot.className = 'probe-dot ' + (p.service_running ? (readers.length ? 'ok' : 'warn') : 'err');
+    if (stateEl) {
+      stateEl.textContent = !p.supported
+        ? '系统缺少 PC/SC 运行库'
+        : (p.service_running
+            ? (readers.length ? `PC/SC 正常 · 发现 ${readers.length} 台读卡器` : 'PC/SC 正常 · 但没有读卡器')
+            : 'PC/SC 服务未启动');
+    }
+    if (hintEl) hintEl.textContent = p.hint || '';
+    if (fixRow) fixRow.style.display = (p.supported && !p.service_running) ? '' : 'none';
+    renderPcscReaders(readers.map(n => ({ name: n, address: n })));
+    if (!silent) log('PC/SC 检测：' + (p.hint || stateEl.textContent), p.service_running ? 'ok' : 'warn');
+    return p;
+  } catch (e) {
+    if (dot) dot.className = 'probe-dot err';
+    if (stateEl) stateEl.textContent = '检测失败';
+    if (hintEl) hintEl.textContent = e.message;
+    if (!silent) toast('PC/SC 检测失败：' + e.message, 'err');
+    return null;
+  }
+}
+
+function renderPcscReaders(list) {
+  const ul = $('#pcscList');
+  if (!ul) return;
+  ul.innerHTML = '';
+  if (!list || !list.length) {
+    ul.innerHTML = '<li class="empty">没有找到 PC/SC 读卡器。请插上读卡器，并确认系统已装驱动。</li>';
+    return;
+  }
+  list.forEach(d => {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <div class="dev-ico">▤</div>
+      <div class="dev-main">
+        <b>${escapeHtml(d.name || d.address || '读卡器')}</b>
+        <span>${escapeHtml(d.atr ? ('ATR ' + d.atr) : '标准 PC/SC 接口')}</span>
+      </div>
+      <span class="dev-tag pcsc">PC/SC</span>
+      ${d.card_present ? '<span class="pill-tag">已放卡</span>' : ''}`;
+    li.onclick = () => doConnectPcsc(d.address, d.name);
+    ul.appendChild(li);
+  });
+}
+
+async function doPcscScan() {
+  try {
+    busy(true, '扫描 PC/SC 读卡器…');
+    const res = await api('scan_all', 6, false, true, false);
+    const list = (res && res.pcsc) || [];
+    renderPcscReaders(list);
+    if (res && res.errors && res.errors.length) log('PC/SC：' + res.errors.join('；'), 'warn');
+    setBadge('#scanBadge', `发现 ${list.length} 台`, list.length ? 'ok' : 'warn');
+    log(`PC/SC 扫描完成，发现 ${list.length} 台读卡器`, list.length ? 'ok' : 'warn');
+    if (!list.length) toast('没有找到 PC/SC 读卡器', 'warn');
+  } catch (e) {
+    toast('扫描失败：' + e.message, 'err');
+    log('PC/SC 扫描失败：' + e.message, 'err');
+  } finally { busy(false); }
+}
+
+async function doConnectPcsc(address, name) {
+  try {
+    busy(true, '连接通用读卡器…');
+    setLed('busy');
+    const snap = await api('connect_pcsc', address || '');
+    state.connected = true;
+    state.mode = 'pcsc';
+    state.address = address || '';
+    applyConnectedUI(snap, address, name);
+    applyCapabilities();
+    toast('通用读卡器已连接', 'ok');
+    log(`已连接通用读卡器 ${name || address || ''}`, 'ok');
+    setTimeout(maybeAutoFind, 700);
+  } catch (e) {
+    state.connected = false;
+    setLed('err');
+    setText('#kvState', '连接失败');
+    setBadge('#connBadge', '连接失败', 'err');
+    toast('连接失败：' + e.message, 'err');
+    log('连接通用读卡器失败：' + e.message, 'err');
+  } finally { busy(false); }
+}
+
+async function copyPcscFix() {
+  const cmd = 'sc config SCardSvr start= auto';
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(cmd + '\nnet start SCardSvr');
+    } else {
+      const ta = document.createElement('textarea');
+      ta.value = cmd + '\nnet start SCardSvr';
+      document.body.appendChild(ta); ta.select();
+      document.execCommand('copy'); ta.remove();
+    }
+    toast('修复命令已复制，请在管理员 PowerShell 里粘贴执行', 'ok');
+  } catch (e) { toast('复制失败，请手动输入：' + cmd, 'err'); }
+}
+
+/* ================================================================
+   手机读卡器通道
+   ================================================================ */
+let __phoneInfo = null;
+async function loadPhoneReaderInfo() {
+  try {
+    const info = await api('phone_reader_info');
+    __phoneInfo = info;
+    setText('#kvLocalIp', info.local_ip || '—');
+    setText('#kvTcpPort', String(info.tcp_port || '—'));
+    setText('#kvBeaconPort', String(info.beacon_port || '—'));
+    const steps = $('#phoneSteps');
+    if (steps && info.steps) {
+      steps.innerHTML = info.steps.map(s => `<li>${escapeHtml(s)}</li>`).join('');
+    }
+    const limits = $('#phoneLimits');
+    if (limits && info.limits) {
+      limits.innerHTML = info.limits.map(s => `<li>${escapeHtml(s)}</li>`).join('');
+    }
+    const apkBtn = $('#btnPhoneApk');
+    if (apkBtn) {
+      apkBtn.textContent = info.has_apk ? '打开 APK 所在文件夹' : 'APK 尚未打包';
+      apkBtn.disabled = !info.has_apk;
+    }
+    return info;
+  } catch (e) {
+    log('读取手机读卡器信息失败：' + e.message, 'err');
+    return null;
+  }
+}
+
+async function doNetScan() {
+  try {
+    busy(true, '在局域网搜索手机读卡器…');
+    const res = await api('scan_all', 5, false, false, true);
+    const list = (res && res.net) || [];
+    renderNetReaders(list);
+    if (res && res.errors && res.errors.length) log('手机读卡器：' + res.errors.join('；'), 'warn');
+    setBadge('#scanBadge', `发现 ${list.length} 台`, list.length ? 'ok' : 'warn');
+    log(`局域网搜索完成，发现 ${list.length} 台手机读卡器`, list.length ? 'ok' : 'warn');
+    if (!list.length) {
+      toast('没找到手机读卡器。请确认手机 App 已启动服务、且在同一 Wi-Fi。', 'warn');
+    }
+  } catch (e) {
+    toast('搜索失败：' + e.message, 'err');
+    log('搜索手机读卡器失败：' + e.message, 'err');
+  } finally { busy(false); }
+}
+
+function renderNetReaders(list) {
+  const ul = $('#netList');
+  if (!ul) return;
+  ul.innerHTML = '';
+  if (!list || !list.length) {
+    ul.innerHTML = '<li class="empty">没有搜到。可点「手动输入地址」直接填手机 IP。</li>';
+    return;
+  }
+  list.forEach(d => {
+    const li = document.createElement('li');
+    li.innerHTML = `
+      <div class="dev-ico">▣</div>
+      <div class="dev-main">
+        <b>${escapeHtml(d.name || '手机读卡器')}</b>
+        <span>${escapeHtml(d.address || '')}</span>
+      </div>
+      <span class="dev-tag net">手机</span>
+      <span class="dev-rssi">局域网</span>`;
+    li.onclick = () => doConnectNet(d.address);
+    ul.appendChild(li);
+  });
+}
+
+async function doConnectNet(address) {
+  if (!address) { toast('请填写手机地址，例如 192.168.1.5:8765', 'err'); return; }
+  try {
+    busy(true, '连接手机读卡器…');
+    setLed('busy');
+    const snap = await api('connect_net', address);
+    state.connected = true;
+    state.mode = 'net';
+    state.address = address;
+    applyConnectedUI(snap, address, snap && snap.transport_label);
+    applyCapabilities();
+    toast('手机读卡器已连接', 'ok');
+    log(`已连接手机读卡器 ${address}`, 'ok');
+    setTimeout(maybeAutoFind, 700);
+  } catch (e) {
+    state.connected = false;
+    setLed('err');
+    setText('#kvState', '连接失败');
+    setBadge('#connBadge', '连接失败', 'err');
+    toast('连接失败：' + e.message, 'err');
+    log('连接手机读卡器失败：' + e.message, 'err');
+  } finally { busy(false); }
+}
+
+/* 能力矩阵：把点不了的按钮禁用掉 */
+const CAP_LABELS = {
+  read_block: '读数据块', write_block: '写数据块', find_card: '寻卡识别',
+  auth: '密钥认证', dump: '整卡导出', write_uid: '写 UID',
+  crack_device: '设备端破解', read_id_card: '读 ID 卡',
+  lock_card: '封卡锁卡', key_cache: '密钥表缓存',
+};
+
+async function applyCapabilities() {
+  let caps = null;
+  try { caps = await api('capabilities'); } catch (e) { return null; }
+  const box = $('#capGrid');
+  if (box) {
+    box.innerHTML = '';
+    Object.keys(CAP_LABELS).forEach(k => {
+      const on = !!(caps && caps[k]);
+      const chip = document.createElement('div');
+      chip.className = 'cap-chip ' + (on ? 'on' : 'off');
+      chip.innerHTML = `<i>${on ? '✓' : '✕'}</i><span>${CAP_LABELS[k]}</span>`;
+      box.appendChild(chip);
+    });
+  }
+  document.body.dataset.crackDevice = caps && caps.crack_device ? '1' : '0';
+  return caps;
 }
 
 function chipBusy(on) {
@@ -1901,6 +2153,34 @@ function bindUI() {
 
   if ($('#btnScan')) $('#btnScan').onclick = doScan;
   if ($('#btnQuickConnect')) $('#btnQuickConnect').onclick = doQuickConnect;
+
+  /* 三通道切换 + PC/SC + 手机读卡器 */
+  $$('#connSeg .seg-item').forEach(b => {
+    b.onclick = () => switchConnTab(b.dataset.conn);
+  });
+  if ($('#btnPcscScan')) $('#btnPcscScan').onclick = doPcscScan;
+  if ($('#btnPcscProbe')) $('#btnPcscProbe').onclick = () => refreshPcscProbe(false);
+  if ($('#btnPcscFix')) $('#btnPcscFix').onclick = copyPcscFix;
+  if ($('#btnNetScan')) $('#btnNetScan').onclick = doNetScan;
+  if ($('#btnNetManual')) {
+    $('#btnNetManual').onclick = () => {
+      const row = $('#netManualRow');
+      if (row) row.style.display = row.style.display === 'none' ? '' : 'none';
+    };
+  }
+  if ($('#btnNetConnect')) {
+    $('#btnNetConnect').onclick = () => doConnectNet(($('#netAddress') || {}).value || '');
+  }
+  if ($('#btnPhoneApk')) {
+    $('#btnPhoneApk').onclick = async () => {
+      try {
+        const r = await api('open_phone_apk_folder');
+        toast(r && r.hint ? r.hint : '已打开 APK 所在文件夹', 'ok');
+      } catch (e) { toast(e.message, 'err'); }
+    };
+  }
+  switchConnTab('ble');
+  applyCapabilities();
 
   if ($('#btnRefreshInfo')) $('#btnRefreshInfo').onclick = doRefreshInfo;
   if ($('#btnDisconnect')) $('#btnDisconnect').onclick = doDisconnect;

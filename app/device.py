@@ -61,6 +61,8 @@ from .transport import (
     Transport,
     handshake,
 )
+from .transport_net import NetTransport
+from .transport_pcsc import PcscTransport
 
 # 密钥破解级联顺序（任务书指定）：前一种失败自动切换下一种
 CRACK_CHAIN = ["staticnested", "staticnested2", "half_decode", "hardnested",
@@ -191,14 +193,16 @@ class AsyncJobRunner:
 
 
 class NfcDevice:
-    """NFC Mini 2.0 同步门面（蓝牙 BLE 单通道）。"""
+    """NFC Mini 业务门面：支持蓝牙 / 通用 PC/SC 读卡器 / 手机读卡器三种通道。"""
 
     def __init__(self, on_log: Optional[Callable[[str, str], None]] = None) -> None:
         self._on_log = on_log
         self.jobs = AsyncJobRunner(on_log=on_log)
         self._ble = BleTransport(on_log=on_log)
+        self._pcsc = PcscTransport(on_log=on_log)
+        self._net = NetTransport(on_log=on_log)
         self.transport: Optional[Transport] = None
-        self.mode: str = ""                        # "ble" or ""
+        self.mode: str = ""                        # "ble" / "pcsc" / "net" / ""
         self._parser = FrameParser()
         self._msgid = 0
         self._waiters: Dict[int, "threading.Event"] = {}
@@ -223,6 +227,18 @@ class NfcDevice:
             except Exception:
                 pass
 
+    # ------------------------------------------------------------ 通道能力
+    def _require_firmware(self, feature: str) -> None:
+        """固件专属功能：PC/SC 通用读卡器与手机读卡器做不到，提前给出明确原因。"""
+        if self.mode in ("pcsc", "net"):
+            label = "通用读卡器" if self.mode == "pcsc" else "手机读卡器"
+            raise NfcError(
+                f"{label}不支持「{feature}」：该功能依赖原厂固件的硬件能力。"
+                f"请改用原厂 NFC Mini 读卡器（蓝牙）执行；"
+                f"其余寻卡 / 读块 / 写块 / 写 UID / 整卡导出功能在{label}上均可用。")
+        if self.mode != "ble":
+            raise NfcError("设备未连接，请先连接读卡器")
+
     # ------------------------------------------------------------ 状态
     @property
     def connected(self) -> bool:
@@ -235,6 +251,10 @@ class NfcDevice:
         label = getattr(self.transport, "label", "")
         if self.mode == "ble":
             return f"蓝牙 · {self.name or self.mac or label}"
+        if self.mode == "pcsc":
+            return f"通用读卡器 · {self.mac or label}"
+        if self.mode == "net":
+            return f"手机读卡器 · {self.name or self.mac or label}"
         return "未连接"
 
     def snapshot(self) -> dict:
@@ -246,14 +266,82 @@ class NfcDevice:
             "mac": self.mac,
             "name": self.name,
             "write_format": self._write_format,
+            "capabilities": self.capabilities(),
             "jobs": self.jobs.active(),
         }
+
+    def capabilities(self) -> dict:
+        """当前通道的能力矩阵（前端据此禁用做不到的功能）。"""
+        mode = self.mode
+        if mode == "pcsc":
+            return {
+                "read_block": True, "write_block": True, "find_card": True,
+                "auth": True, "dump": True, "write_uid": True,
+                "crack_device": False, "read_id_card": False,
+                "lock_card": False, "key_cache": False,
+                "note": "通用读卡器：支持寻卡/读块/写块/写 UID/整卡 dump；"
+                        "不支持固件级随机数采集破解与低频 ID 卡",
+            }
+        if mode == "net":
+            return {
+                "read_block": True, "write_block": True, "find_card": True,
+                "auth": True, "dump": True, "write_uid": True,
+                "crack_device": False, "read_id_card": False,
+                "lock_card": False, "key_cache": False,
+                "note": "手机读卡器：NFC 天线能力受限，读不了 125kHz ID 卡；"
+                        "破解请用桌面端 PC 算法",
+            }
+        if mode == "ble":
+            return {
+                "read_block": True, "write_block": True, "find_card": True,
+                "auth": True, "dump": True, "write_uid": True,
+                "crack_device": True, "read_id_card": True,
+                "lock_card": True, "key_cache": True,
+                "note": "原厂读卡器：全部功能可用",
+            }
+        return {"read_block": False, "write_block": False, "find_card": False,
+                "auth": False, "dump": False, "write_uid": False,
+                "crack_device": False, "read_id_card": False,
+                "lock_card": False, "key_cache": False,
+                "note": "未连接"}
 
     # ------------------------------------------------------------ 扫描 / 枚举
     def scan(self, timeout: float = 6.0) -> List[dict]:
         """蓝牙扫描（内部会切到 BLE 传输）。"""
         devices = self._ble.scan(timeout)
         return devices
+
+    def scan_all(self, timeout: float = 6.0,
+                 with_ble: bool = True, with_pcsc: bool = True,
+                 with_net: bool = True) -> dict:
+        """三通道一起枚举，返回 {ble:[], pcsc:[], net:[], errors:[]}。"""
+        out: Dict[str, Any] = {"ble": [], "pcsc": [], "net": [], "errors": []}
+        if with_pcsc:
+            try:
+                out["pcsc"] = PcscTransport.list_readers()
+            except Exception as exc:                   # noqa: BLE001
+                out["errors"].append(f"PC/SC：{exc}")
+        if with_net:
+            try:
+                out["net"] = NetTransport.discover(min(3.0, float(timeout)))
+            except Exception as exc:                   # noqa: BLE001
+                out["errors"].append(f"手机读卡器：{exc}")
+        if with_ble:
+            try:
+                out["ble"] = self._ble.scan(float(timeout))
+            except Exception as exc:                   # noqa: BLE001
+                out["errors"].append(f"蓝牙：{exc}")
+        return out
+
+    def pcsc_probe(self) -> dict:
+        """检测通用读卡器环境（服务是否启动、有没有读卡器）。"""
+        return PcscTransport.probe()
+
+    def net_probe(self, timeout: float = 2.0) -> dict:
+        """检测局域网里有没有手机读卡器。"""
+        from .transport_net import probe as net_probe
+
+        return net_probe(timeout)
 
     def connect(self, mac: str, timeout: float = 20.0) -> dict:
         self.disconnect()
@@ -262,6 +350,26 @@ class NfcDevice:
         self.mode = "ble"
         self.mac = mac
         self.name = None
+        return self.snapshot()
+
+    def connect_pcsc(self, reader: str = "") -> dict:
+        """连接通用 PC/SC 读卡器。"""
+        self.disconnect()
+        self._bind(self._pcsc)
+        self._pcsc.open(reader=reader)
+        self.mode = "pcsc"
+        self.mac = self._pcsc.reader
+        self.name = None
+        return self.snapshot()
+
+    def connect_net(self, address: str, timeout: float = 6.0) -> dict:
+        """连接手机读卡器（address 形如 192.168.1.5:8765）。"""
+        self.disconnect()
+        self._bind(self._net)
+        self._net.open(address=address, timeout=timeout)
+        self.mode = "net"
+        self.mac = address
+        self.name = getattr(self._net, "device_name", "") or address
         return self.snapshot()
 
     def _bind(self, transport: Transport) -> None:
@@ -275,7 +383,7 @@ class NfcDevice:
 
     def disconnect(self) -> None:
         with self._lock:
-            for transport in (self._ble,):
+            for transport in (self._ble, self._pcsc, self._net):
                 if transport is None:
                     continue
                 try:
@@ -290,7 +398,7 @@ class NfcDevice:
 
     # ------------------------------------------------------------ 收发
     def _on_data(self, chunk: bytes) -> None:
-        """入站字节（来自 BLE 通知线程）。"""
+        """入站字节（来自 BLE 通知线程 / PCSC 回灌 / 手机 TCP 线程）。"""
         try:
             frames = self._parser.feed(bytes(chunk))
         except Exception as exc:                   # noqa: BLE001
@@ -443,6 +551,7 @@ class NfcDevice:
     # ---- 0x40 / 0x41：设备端密钥表批量验证（逆向自小程序，2026-10-09）----
     def write_key_cache(self, keys, timeout: float = 25.0) -> dict:
         """0x40 把候选密钥灌进设备内部表（单批 ≤ 500 把，DATA 达 3005 字节走长帧）。"""
+        self._require_firmware("设备端密钥表缓存（0x40）")
         payload = build_key_cache_payload(keys)
         d = self.request(payload, timeout=timeout)
         code = _status_code(d)
@@ -456,6 +565,7 @@ class NfcDevice:
     def batch_find_key(self, key_off: int = 1, count: int = 1, key_type: int = 0,
                        block: int = 0, timeout: float = 25.0) -> dict:
         """0x41 让设备在密钥表里自己试出该块密钥；命中直接返回密钥。"""
+        self._require_firmware("设备端批量搜密钥（0x41）")
         payload = build_batch_find_payload(key_off, count, key_type, block)
         d = self.request(payload, timeout=timeout)
         res = parse_batch_find_result(d)
@@ -467,6 +577,7 @@ class NfcDevice:
     def device_batch_verify(self, keys, block: int = 0, key_type: int = 0,
                             timeout: float = 25.0) -> dict:
         """0x40 + 0x41 组合：把候选密钥交给设备自己试（官方同款批量验证）。"""
+        self._require_firmware("设备端批量验证（0x40+0x41）")
         key_list = list(keys or [])
         if not key_list:
             raise NfcError("候选密钥为空", 15)
@@ -855,6 +966,7 @@ class NfcDevice:
     # ------------------------------------------------------------ 破解
     def crack(self, method: str, sector: int = 0, key_type: int = 0,
               timeout: float = 90.0) -> dict:
+        self._require_firmware("固件级随机数采集破解")
         cmd = {
             "staticnested": CMD.STATICNEST,
             "staticnested2": CMD.STATICNEST2,
@@ -897,6 +1009,7 @@ class NfcDevice:
 
         返回 {ok, method, keys, attempts:[...], elapsed}
         """
+        self._require_firmware("固件级破解级联")
         chain = list(methods or CRACK_CHAIN)
         attempts: List[dict] = []
         started = time.time()
@@ -964,6 +1077,7 @@ class NfcDevice:
         请求 DATA = [0x32, t, n, keyTypeA, keyTypeB]（5 字节，逆向自小程序 X()）。
         响应 e[2]===9 表示采集完成，随后 e[3:7]/e[7:11] 是 enc1/ks1（第二组在 e[11:15]/e[15:19]）。
         """
+        self._require_firmware("固件级 staticnested 采集")
         payload = bytes([CMD.STATICNEST, int(block) & 0xFF, int(n) & 0xFF,
                          int(key_type_a) & 1, int(key_type_b) & 1])
         d = self.request(payload, timeout=20.0)
@@ -994,6 +1108,7 @@ class NfcDevice:
         设备连续回 256 包：e[1]=进度(0..255)、e[2]=状态、e[3:7]+e[7] 为密文；
         进度 255 结束。拼成的文本行整批交云端 /hardnested。
         """
+        self._require_firmware("固件级 hardnested 采集")
         payload = bytes([CMD.HARDNESTED, int(block) & 0xFF,
                          int(key_type_a) & 1, 0, int(key_type_b) & 1])
         lines: List[str] = []
@@ -1039,6 +1154,7 @@ class NfcDevice:
         请求 [0x22, block, keyType]；设备回 3 包，package_number 0→1→2。
         包 0/1 取 uid/nt/nr_1/ks_list，包 2 取 nr_3/ks_list_30..37。
         """
+        self._require_firmware("固件级 full_decode 采集")
         payload = bytes([CMD.FULL_DECODE, int(block) & 0xFF, int(key_type) & 1])
         packets: List[bytes] = []
         state = {"ok": True, "err": ""}
@@ -1091,12 +1207,14 @@ class NfcDevice:
     # → 0x36 开始侦测数据流；仅 sniff:true 的机型支持（NFC Max 2.0 支持）。
     def sniff_init(self) -> dict:
         """0x34 读取初始侦测数据（第一步：放原卡读取）。"""
+        self._require_firmware("设备端侦测（嗅探）")
         d = self.request(bytes([0x34]), timeout=8.0)
         return {"raw": fmt_hex(d), "status": _status_code(d),
                 "status_text": _status_text(d), "data": list(d)}
 
     def sniff_set_card(self, uid, sak: int = 0x08, atqa=b"\x04\x00") -> dict:
         """0x35 上报模拟卡参数：DATA = 35 + UID(最多7B) + SAK(1B) + ATQA(2B)。"""
+        self._require_firmware("设备端侦测（嗅探）")
         if isinstance(uid, str):
             uid = bytes.fromhex(uid.replace(" ", ""))
         uid = bytes(uid or b"")[:7]
@@ -1108,12 +1226,14 @@ class NfcDevice:
 
     def sniff_start(self) -> dict:
         """0x36 开始侦测数据流（把设备贴近门禁/电梯刷卡器采集）。"""
+        self._require_firmware("设备端侦测（嗅探）")
         d = self.request(bytes([0x36]), timeout=20.0)
         return {"raw": fmt_hex(d), "status": _status_code(d),
                 "status_text": _status_text(d), "data": list(d)}
 
     def sniff_run(self, uid=None, sak: int = 0x08, progress=None) -> dict:
         """完整侦测流程：0x34 初始化 → 0x35 设卡 → 0x36 采集。"""
+        self._require_firmware("设备端侦测（嗅探）")
         steps = []
         if progress:
             progress(1, 3, "读取初始侦测数据（0x34）…")
@@ -1128,6 +1248,7 @@ class NfcDevice:
                 "raw": run.get("raw", ""), "uid": (uid or "")}
 
     def detect_bug_card(self) -> dict:
+        self._require_firmware("漏洞卡检测（0x25）")
         d = self.request(bytes([CMD.IS_BUG]), timeout=10.0)
         return {"raw": fmt_hex(d), "is_bug": _status_code(d) == 1,
                 "status_text": _status_text(d)}
@@ -1186,6 +1307,7 @@ class NfcDevice:
     #   · 0x17 封卡（UFUID 类魔术卡，单字节，不可逆）
     def read_id_card(self) -> dict:
         """0x26 读 ID 卡 / 低频卡：返回卡号、频率档位（125/250/375/500 kHz）等。"""
+        self._require_firmware("读取 125 kHz 低频 ID 卡（0x26）")
         d = self.request(bytes([CMD.READ_ID_CARD]), timeout=8.0)
         info = parse_id_card(d)
         self._log("info", f"读 ID 卡成功：卡号 {info['id_hex']} · {info['freq']} "
@@ -1412,6 +1534,7 @@ class NfcDevice:
 
         ⚠ 不可逆：封卡后该卡不能再被改写，请仅在明确知晓后果时调用。
         """
+        self._require_firmware("封卡 0x17（不可逆）")
         payload = build_ufuid_lock_payload()
         started = time.time()
         d = self.request(payload, timeout=12.0)
@@ -1432,6 +1555,7 @@ class NfcDevice:
 
     def lock_card(self) -> dict:
         """0x23 锁卡（不可逆）。"""
+        self._require_firmware("锁卡 0x23（不可逆）")
         payload = build_lock_card_payload()
         d = self.request(payload, timeout=12.0)
         res = parse_lock_result(d, CMD.LOCK_CARD)
@@ -1446,6 +1570,7 @@ class NfcDevice:
         返回卡号 / 卡类型 / 卡代码 / 设施码，并把结果并入 ``_last_card`` 缓存，
         供后续 0x0C 写卡号、0x26 回读等流程复用。
         """
+        self._require_firmware("设备端自动识别（0x38，仅低频卡）")
         payload = build_auto_identify_payload()
         d = self.request(payload, timeout=10.0)
         info = parse_auto_identify(d)

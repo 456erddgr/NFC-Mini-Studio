@@ -1,5 +1,5 @@
 /* ==========================================================================
-   NFC Mini Studio 2.6.0 · Liquid Glass 主题（macOS 桌面系统观感）
+   NFC Mini Studio 3.0.0 · Liquid Glass 主题（macOS 桌面系统观感）
    设计要点：多层毛玻璃 + 高光边缘 + 折射扫光 + 大圆角 + 柔和层级阴影
    ========================================================================== */
 
@@ -1761,3 +1761,121 @@ body.light #chipCard.chip-card {
     0 16px 38px rgba(0, 0, 0, .42) !important;
 }
 
+
+/* ================================================================
+   三通道连接（v2.7.0）
+   1) 蓝牙原厂 NFC Mini · 2) 通用 PC/SC 读卡器 · 3) 手机当读卡器
+   ================================================================ */
+.seg.three { grid-template-columns: 1fr 1fr 1fr; }
+.seg-item .seg-dot {
+  display: inline-block; width: 6px; height: 6px; border-radius: 50%;
+  margin-right: 6px; vertical-align: middle;
+  background: rgba(255, 255, 255, .3);
+}
+.seg-item.is-active .seg-dot { background: var(--ok); box-shadow: 0 0 7px rgba(48, 209, 88, .9); }
+
+/* 环境检测盒 */
+.probe-box {
+  display: flex; flex-direction: column; gap: 9px;
+  padding: 13px 15px; border-radius: 16px;
+  background: rgba(255, 255, 255, .045);
+  border: 1px solid rgba(255, 255, 255, .10);
+}
+.probe-line { display: flex; align-items: center; gap: 9px; font-size: 12.5px; }
+.probe-dot {
+  width: 9px; height: 9px; border-radius: 50%; flex: none;
+  background: rgba(255, 255, 255, .28);
+  transition: .4s var(--ease);
+}
+.probe-dot.ok { background: var(--ok); box-shadow: 0 0 10px rgba(48, 209, 88, .85); }
+.probe-dot.warn { background: var(--warn); box-shadow: 0 0 10px rgba(255, 214, 10, .85); }
+.probe-dot.err { background: var(--err); box-shadow: 0 0 10px rgba(255, 69, 58, .85); }
+.probe-hint { font-size: 11.5px; line-height: 1.62; color: var(--ink-3); }
+.probe-readers { list-style: none; display: flex; flex-direction: column; gap: 5px; }
+.probe-readers li {
+  display: flex; align-items: center; gap: 8px;
+  font-size: 11.5px; color: var(--ink-2);
+  padding: 6px 9px; border-radius: 9px;
+  background: rgba(0, 0, 0, .18);
+}
+.probe-readers li .pill-tag { margin-left: auto; }
+
+/* 手机读卡器引导 */
+.phone-guide {
+  display: flex; flex-direction: column; gap: 11px;
+  padding: 14px 16px; border-radius: 16px;
+  background: linear-gradient(135deg, rgba(10, 132, 255, .10), rgba(255, 255, 255, .035));
+  border: 1px solid rgba(10, 132, 255, .20);
+}
+.phone-guide-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; }
+.phone-guide-head b { font-size: 13px; }
+.phone-steps {
+  list-style: none; counter-reset: ph; display: flex; flex-direction: column; gap: 7px;
+}
+.phone-steps li {
+  counter-increment: ph; position: relative;
+  padding-left: 27px; font-size: 11.5px; line-height: 1.6; color: var(--ink-2);
+}
+.phone-steps li::before {
+  content: counter(ph);
+  position: absolute; left: 0; top: 1px;
+  width: 18px; height: 18px; border-radius: 50%;
+  display: grid; place-items: center;
+  font-size: 10.5px; font-weight: 700; color: #fff;
+  background: linear-gradient(150deg, var(--accent-2), var(--accent));
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, .4);
+}
+.phone-net { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 8px; }
+.phone-net .kv { background: rgba(0, 0, 0, .16); }
+.phone-limits { list-style: none; display: flex; flex-direction: column; gap: 4px; }
+.phone-limits li {
+  position: relative; padding-left: 15px;
+  font-size: 11px; line-height: 1.55; color: var(--ink-3);
+}
+.phone-limits li::before {
+  content: '!'; position: absolute; left: 2px; top: 0;
+  font-size: 11px; font-weight: 700; color: var(--warn);
+}
+
+/* 能力矩阵 */
+.cap-grid {
+  display: grid; grid-template-columns: repeat(auto-fill, minmax(122px, 1fr));
+  gap: 7px; margin-top: 12px;
+}
+.cap-grid:empty { display: none; }
+.cap-chip {
+  display: flex; align-items: center; gap: 6px;
+  padding: 6px 10px; border-radius: 10px;
+  font-size: 11px; font-weight: 500;
+  border: 1px solid rgba(255, 255, 255, .10);
+  background: rgba(255, 255, 255, .04);
+  color: var(--ink-3);
+}
+.cap-chip.on {
+  color: #cdf3d8; border-color: rgba(48, 209, 88, .30);
+  background: rgba(48, 209, 88, .10);
+}
+.cap-chip.off { opacity: .55; }
+.cap-chip i { font-style: normal; font-size: 11px; }
+.cap-chip.on i { color: var(--ok); }
+.cap-chip.off i { color: var(--ink-4); }
+
+/* 通道设备列表标签 */
+.dev-tag {
+  font-size: 9.5px; font-weight: 600; letter-spacing: .3px;
+  padding: 2px 7px; border-radius: 6px; flex: none;
+  background: rgba(255, 255, 255, .10); color: var(--ink-3);
+}
+.dev-tag.ble { background: rgba(10, 132, 255, .18); color: #b8dcff; }
+.dev-tag.pcsc { background: rgba(48, 209, 88, .16); color: #b6f2c6; }
+.dev-tag.net { background: rgba(191, 90, 242, .18); color: #e2c4ff; }
+
+/* 空状态里的可点击操作 */
+.empty-action { color: var(--accent-2); cursor: pointer; text-decoration: underline; }
+.empty-action:hover { color: #fff; }
+
+body.light .probe-box,
+body.light .phone-guide { background: rgba(255, 255, 255, .66); border-color: rgba(20, 30, 60, .10); }
+body.light .probe-readers li { background: rgba(20, 30, 60, .05); }
+body.light .cap-chip { background: rgba(20, 30, 60, .04); border-color: rgba(20, 30, 60, .08); }
+body.light .phone-net .kv { background: rgba(20, 30, 60, .04); }

@@ -1,8 +1,29 @@
 # NFC Mini Studio 运行依赖
-# 安装：python -m pip install -r requirements.txt
-bleak>=0.22.0          # BLE 通信（连接读卡器）
+# 安装：python -m pip install --no-cache-dir -r requirements.txt
+#
+# 注：Windows 上 pip 有时会因为缓存目录权限报 "Errno 13 Permission denied"，
+#     加 --no-cache-dir 可以绕过。
+
+# ---- 运行必需 ----
+bleak>=0.22.0          # BLE 通信（连接原厂蓝牙读卡器）
 pywebview>=5.0         # WebView2 桌面窗口容器
-Pillow>=10.0.0         # 图标生成
-pyinstaller>=6.0       # 打包（仅构建时需要）
-numpy>=1.26.0        # 本地 mfkey32 破解（v2.2 本地引擎依赖）
-numba>=0.59.0        # 本地 mfkey32 JIT 加速（v2.2 本地引擎依赖）
+Pillow>=10.0.0         # 壁纸 / 图标处理
+
+# ---- 破解引擎 ----
+numpy>=1.26.0          # mfkey32 数值计算
+numba>=0.59.0          # mfkey32 JIT 加速（依赖 llvmlite）
+
+# ---- 可选功能 ----
+pycryptodome>=3.17     # AES 解密（云端 token / 密钥库加密导出）
+pyzipper>=0.3.6        # 加密 zip 导入导出
+pyngrok>=7.0           # 可选内网穿透（远程使用）
+
+# ---- 构建时需要（仅打包，运行时不需要）----
+pyinstaller>=6.0
+
+# ---- 通用读卡器（PC/SC）说明 ----
+# 本项目用 ctypes 直接绑定系统自带的 winscard.dll，不需要 pyscard。
+# 只要 Windows 的 Smart Card 服务 (SCardSvr) 启动即可：
+#   管理员 PowerShell 执行：
+#     sc config SCardSvr start= auto
+#     net start SCardSvr
