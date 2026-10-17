@@ -1348,6 +1348,10 @@ async function doDump() {
     } catch (e) { /* 密钥展示失败不影响读卡 */ }
     renderSectors();
     const got = Object.keys(state.dump).length;
+  if (got) {
+    state.snapshot = Object.assign({}, state.dump);
+    state.snapshotUid = (state.lastCard && state.lastCard.uid) || state.lastUid || '';
+  }
     const failed = Object.keys(res.errors || {}).length;
     setBadge('#dumpBadge', `成功 ${res.ok_count}/${res.total}`, failed ? 'warn' : 'ok');
     finishProgress('dump', got > 0, `成功 ${res.ok_count} 块 / 失败 ${failed} 块`);
@@ -1366,6 +1370,14 @@ async function doDump() {
 }
 
 async function doWriteAll(skipConfirm) {
+  // 破解 / 换卡会清空 dump：先用「上次读到的整卡快照」，否则用户看到的就是
+  // 「没有卡片数据，无法写入」。
+  if (!Object.keys(state.dump || {}).length && state.snapshot &&
+      Object.keys(state.snapshot).length) {
+    state.dump = Object.assign({}, state.snapshot);
+    log(`使用上次读到的整卡数据（UID ${escapeHtml(state.snapshotUid || '—')}，` +
+        `${Object.keys(state.dump).length} 块）写入当前卡`, 'info');
+  }
   if (!Object.keys(state.dump || {}).length) {
     // 只破解过、没读过整卡时，state.dump 是空的：自动先读一遍当前卡
     toast('还没有整卡数据，正在读取当前卡…', 'info');
@@ -1381,7 +1393,7 @@ async function doWriteAll(skipConfirm) {
     .sort((a, b) => a - b);
   if (!blocks.length) { toast('没有可写入的数据，请先读取整卡', 'err'); return; }
   const ok = skipConfirm ? true : await confirmBox('写入整卡',
-    `即将向目标卡写入 ${blocks.length} 个数据块（含扇区尾块）。\n` +
+    `即将向目标卡写入 ${blocks.length} 个数据块（自动跳过密钥尾块）。\n` +
     '写入会覆盖目标卡原有数据，且每块都会回读校验。\n\n确定继续吗？');
   if (!ok) return;
   const key = ($('#keyInput') ? $('#keyInput').value : '').replace(/\s/g, '');
@@ -1453,6 +1465,24 @@ function clearDump() {
   setText('#writeTime', '—');
   setBar('#dumpBar', 0, 'run');
   setBar('#writeBar', 0, 'run');
+}
+
+/* ---------------------------------------------------------- 修复卡片 */
+async function doRescueCard() {
+  const ok = await confirmBox('修复卡片',
+    '只重写每个扇区的「尾块」为默认密钥 FF0780，数据块不动。\n' +
+    '适合尾块被写坏、卡片还能被读到的卡。\n\n确定开始吗？');
+  if (!ok) return;
+  try {
+    toast('正在逐扇区尝试修复…', 'info');
+    const res = await api('rescue_card', ($('#keyInput') ? $('#keyInput').value : ''));
+    log('修复完成：成功 ' + res.fixed.length + ' 个扇区，失败 ' + res.failed.length + ' 个',
+        res.fixed.length ? 'ok' : 'warn');
+    (res.notes || []).forEach(n => log(n, 'info'));
+  } catch (e) {
+    log('修复卡片失败：' + e.message, 'err');
+    toast('修复失败：' + e.message, 'err');
+  }
 }
 
 /* ---------------------------------------------------------- 卡夹 */
@@ -2342,6 +2372,7 @@ if ($('#btnWriteCardFast')) $('#btnWriteCardFast').onclick = () => {
   }
   if ($('#btnLockUfuid')) $('#btnLockUfuid').onclick = () => doLock('ufuid');
   if ($('#btnLockCard')) $('#btnLockCard').onclick = () => doLock('card');
+  if ($('#btnRescueCard')) $('#btnRescueCard').onclick = () => doRescueCard();
 
   /* 破解页 */
   if ($('#btnCrack')) $('#btnCrack').onclick = doManualCrack;

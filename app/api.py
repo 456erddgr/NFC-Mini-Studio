@@ -1527,6 +1527,54 @@ class Api:
             return res
         return self._guard(work)
 
+    def rescue_card(self, key_hex: str = "") -> dict:
+        """抢救被写坏尾块的卡：逐扇区认证成功 → 尾块重写为标准值 → 回读校验。"""
+        def work():
+            card = self._require_card()
+            uid = card.get("uid", "")
+            blocks = int(card.get("block_count") or 64) or 64
+            sectors = max(1, blocks // 4)
+            keys = []
+            if key_hex:
+                keys.append(key_hex.replace(" ", "").upper())
+            for k in ("FFFFFFFFFFFF", "A0A1A2A3A4A5", "D3F7D3F7D3F7",
+                      "000000000000", "AABBCCDDEEFF"):
+                if k not in keys:
+                    keys.append(k)
+            fixed, failed, notes = [], [], []
+            trailer = bytes.fromhex(STD_TRAILER)
+            for sector in range(sectors):
+                blk = sector * 4 + 3
+                done = False
+                for key in keys:
+                    try:
+                        self.device.auth(blk, bytes.fromhex(key), 0)
+                    except Exception:                      # noqa: BLE001
+                        try:
+                            self.device.auth(blk, bytes.fromhex(key), 1)
+                        except Exception:                  # noqa: BLE001
+                            continue
+                    try:
+                        self.device.write_block(blk, trailer, bytes.fromhex(key),
+                                                0, verify=True, adaptive=False)
+                        fixed.append(sector)
+                        notes.append(f"扇区 {sector}：用 {key} 修复成功")
+                        done = True
+                        break
+                    except Exception as exc:               # noqa: BLE001
+                        notes.append(f"扇区 {sector}：{key} 可认证但写入失败（{exc}）")
+                if not done:
+                    failed.append(sector)
+            self._on_device_log(
+                "ok" if fixed else "warn",
+                f"修复卡片：成功 {len(fixed)} 个扇区，失败 {len(failed)} 个")
+            for n in notes:
+                self._on_device_log("info", n)
+            return {"uid": uid, "fixed": fixed, "failed": failed,
+                    "notes": notes, "trailer": STD_TRAILER}
+
+        return self._guard(work)
+
     def lock_card(self, confirm: bool = False) -> dict:
         """0x23 锁卡。⚠ 不可逆，需 confirm=True 显式确认。"""
         def work():
