@@ -89,9 +89,26 @@ def find_sdk() -> Path:
     raise SystemExit("找不到 Android SDK。请设置 ANDROID_HOME（需含 platforms/android-34）。")
 
 
+def ascii_build_root() -> Path:
+    """挑一个纯 ASCII 的构建目录。
+
+    Windows 用户名可能是中文（例如 C:\\Users\\刘子墨\\AppData\\Local\\Temp），
+    而 AGP 8.x 对非 ASCII 工程路径会直接报错，所以优先用 C:\\nfcmreader-build。
+    """
+    cands = [Path(r"C:\nfcmreader-build"), Path(tempfile.gettempdir()) / "nfcmreader-build"]
+    for c in cands:
+        try:
+            c = c.resolve()
+            str(c).encode("ascii")
+        except (OSError, UnicodeEncodeError):
+            continue
+        return c
+    return Path(tempfile.gettempdir()) / "nfcmreader-build"
+
+
 def mirror_to_ascii_tree(src: Path) -> Path:
-    """把 android/ 源码树镜像到纯 ASCII 临时目录。"""
-    tmp_root = Path(tempfile.gettempdir()) / "nfcmreader-build"
+    """把 android/ 源码树镜像到纯 ASCII 目录。"""
+    tmp_root = ascii_build_root()
     if tmp_root.exists():
         shutil.rmtree(tmp_root, ignore_errors=True)
     tmp_root.mkdir(parents=True, exist_ok=True)

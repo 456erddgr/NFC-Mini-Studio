@@ -2,64 +2,120 @@ package net.nfcreader.minireader;
 
 import android.nfc.Tag;
 import android.nfc.tech.MifareClassic;
+import android.nfc.tech.MifareUltralight;
 import android.nfc.tech.NfcA;
-import android.util.Log;
 
-import java.io.IOException;
+import java.util.ArrayList;
+import java.util.Arrays;
 import java.util.HashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
- * 把手机 NFC 变成「NFC Mini 2.0 协议兼容读卡器」。
+ * NFC 协议引擎：把桌面端发来的私有协议命令翻译成 Android NFC API 调用。
  *
- * 收到的是桌面端下发的 DATA 区（不含帧头），返回的也是 DATA 区应答。
- * 所有布局与桌面端 app/device.py 的解析严格对齐。
+ * 相对旧版的修复（都是真 bug）：
+ *  1. 【致命】旧版 readBlock 忽略传入密钥、硬编码 FF×6，导致非出厂密钥的卡片永远读不出。
+ *     现在改成「先查密钥缓存 → 用缓存密钥认证 → 再试给定额钥」，认证结果按
+ *     (扇区, 密钥类型) 缓存，桌面端先发 0x06 认证、再发 0x07 读块时可复用。
+ *  2. 【致命】旧版每个操作都 open/close MifareClassic，认证态随连接丢失，极慢且经常失败。
+ *     现在连接与认证态都跨命令保持，只有卡片变化或显式 RESET 才关闭。
+ *  3. 【致命】statusPos 缺省值写反：桌面端表里只有 0x06/0x07/0x08/0x09/0x0A/0x0B/0x20
+ *     的状态码在 index 2，其余（包括 0x17/0x23/0x24/0x26/0x27/0x38）都在 index 1。
+ *     旧版缺省返回 2，导致这些命令的错误码被桌面端读成「成功」。
+ *  4. 【致命】旧版 hasTag 用 8 秒超时且 Activity 8.5 秒后强置 null，整卡导出中途会失败。
+ *     现在改为「每次成功操作刷新 30 秒空闲期」，且不再由 Activity 主动清空。
+ *  5. 0x0C 写卡号/0x27 写 UID 使用统一的块 0 构造函数（含 BCC 计算），不再用未初始化变量。
+ *  6. 新增 Mifare Ultralight / NTAG（7 字节 UID 卡）按页读写支持。
  */
 public final class NfcEngine {
 
-    private static final String TAG = "NfcEngine";
+    /** 日志回调（可能来自任意线程）。 */
+    public interface Log {
+        void onLog(String line);
+    }
 
-    /** 最近一次被读到的卡片（由 MainActivity 的 reader-mode 回调更新）。 */
+    /** 卡片信息（本机工具界面用）。 */
+    public static final class CardInfo {
+        public boolean present = false;
+        public String uid = "";
+        public int sak = -1;
+        public String atqa = "";
+        public int typeId = 0;
+        public String typeName = "未知";
+        public String className = "";
+        public String label = "";
+        public String note = "";
+        public int sectorCount = 0;
+        public int blockCount = 0;
+        public int sizeBytes = 0;
+        public String techs = "";
+        public String mifareType = "";
+    }
+
+    /** 空闲多久之后认为卡片可能已离开（仅用于 UI 提示，不影响实际读写）。 */
+    private static final long IDLE_HINT_MS = 30000L;
+
+    private final Log logger;
+    private final Object lock = new Object();
+    private final Map<Integer, byte[]> authedKeys = new HashMap<>();
+
     private volatile Tag currentTag;
-    private volatile long lastSeenMs = 0L;
+    private volatile long lastOkMs = 0L;
+    private volatile byte[] defaultKey = Protocol.DEFAULT_KEY.clone();
 
-    /** 认证缓存：(sector<<1|keyType) -> 是否已认证。 */
-    private final Map<Integer, Boolean> authed = new HashMap<>();
-    private int authedTagHash = 0;
+    private MifareClassic mc;
+    private MifareUltralight mu;
+    private int mcTagId = 0;
+    private int muTagId = 0;
 
-    /** 默认密钥（出厂 FF x6）。 */
-    private byte[] defaultKey = new byte[]{-1, -1, -1, -1, -1, -1};
+    /** 最近一次写入的卡号（5 字节），供 0x24 卡号校验使用。 */
+    private volatile byte[] lastCardNo;
 
-    /** 日志回调（给 UI 显示）。 */
-    public interface Logger {
-        void log(String line);
+    public NfcEngine(Log log) {
+        this.logger = log;
     }
 
-    private final Logger logger;
-
-    public NfcEngine(Logger logger) {
-        this.logger = logger;
+    /** 内部日志出口（任意线程安全）。 */
+    private void log(String line) {
+        try {
+            if (logger != null) logger.onLog(line);
+        } catch (Throwable ignore) {
+        }
     }
 
-    private void log(String s) {
-        Log.d(TAG, s);
-        if (logger != null) logger.log(s);
+    /**
+     * 读 SAK。MifareClassic 本身没有 getSak()，SAK 只能从 NfcA 技术对象取。
+     * 取不到返回 -1（表示不是 ISO14443-A 卡）。
+     */
+    private int sakOf(Tag t) {
+        if (t == null) return -1;
+        try {
+            NfcA na = NfcA.get(t);
+            if (na != null) return na.getSak() & 0xFF;
+        } catch (Throwable ignore) {
+        }
+        return -1;
     }
 
-    public void setTag(Tag tag) {
-        this.currentTag = tag;
-        this.lastSeenMs = System.currentTimeMillis();
-        if (tag != null) {
-            int h = tag.hashCode();
-            if (h != authedTagHash) {
-                authedTagHash = h;
-                authed.clear();
+    // ------------------------------------------------------------ 卡片生命周期
+
+    public void setTag(Tag t) {
+        synchronized (lock) {
+            if (t == null) {
+                closeCardLocked();
+                return;
             }
-            log("检测到卡片 " + Protocol.hex(tag.getId()));
-        } else {
-            authed.clear();
-            authedTagHash = 0;
-            log("卡片离开");
+            Tag old = currentTag;
+            if (old != null && sameTag(old, t)) {
+                lastOkMs = System.currentTimeMillis();
+                return;
+            }
+            closeCardLocked();
+            currentTag = t;
+            lastOkMs = System.currentTimeMillis();
+            authedKeys.clear();
+            log("检测到卡片：" + Protocol.hex(t.getId()));
         }
     }
 
@@ -67,435 +123,702 @@ public final class NfcEngine {
         return currentTag;
     }
 
+    /** 卡片是否可能还在（30 秒内有成功操作）。 */
     public boolean hasTag() {
         Tag t = currentTag;
         if (t == null) return false;
-        // 卡片 8 秒内没再被回调认为已经拿走了
-        return System.currentTimeMillis() - lastSeenMs < 8000L;
+        return System.currentTimeMillis() - lastOkMs < IDLE_HINT_MS;
+    }
+
+    public void closeCard() {
+        synchronized (lock) {
+            closeCardLocked();
+        }
     }
 
     public void setDefaultKey(byte[] key) {
         if (key != null && key.length == 6) defaultKey = key.clone();
     }
 
-    // ------------------------------------------------------------------ 分发
+    public byte[] getDefaultKey() {
+        return defaultKey.clone();
+    }
 
-    /** 处理一条桌面端命令，返回 DATA 区应答；永不返回 null。 */
-    public byte[] dispatch(byte[] req) {
-        if (req == null || req.length == 0) return Protocol.of(0, 15);
-        int cmd = req[0] & 0xFF;
-        try {
-            switch (cmd) {
-                case Protocol.CMD_INFO:
-                    return handleInfo();
-                case Protocol.CMD_STATE:
-                    return handleState();
-                case Protocol.CMD_FIND_CARD:
-                    return handleFindCard();
-                case Protocol.CMD_KEY_A_CHECK:
-                case Protocol.CMD_KEY_B_CHECK:
-                    return handleKeyCheck(req);
-                case Protocol.CMD_AUTH:
-                    return handleAuth(req);
-                case Protocol.CMD_READ_BLOCK:
-                    return handleReadBlock(req);
-                case Protocol.CMD_WRITE_BLOCK:
-                    return handleWriteBlock08(req);
-                case Protocol.CMD_WRITE_BLOCK_FAST:
-                    return handleWriteBlock16(req);
-                case Protocol.CMD_WRITE_BLOCK_NORMAL:
-                    return handleWriteBlock18(req);
-                case Protocol.CMD_SCAN_CARD:
-                    return Protocol.of(Protocol.CMD_SCAN_CARD, 0);
-                case Protocol.CMD_WRITE_CARD:
-                case Protocol.CMD_WRITE_UID:
-                    return handleWriteCardNo(req, cmd);
-                case Protocol.CMD_CHECK_CARD_NO:
-                    return handleCheckCardNo();
-                case Protocol.CMD_RESET:
-                    authed.clear();
-                    return Protocol.of(Protocol.CMD_RESET, 0);
-                default:
-                    log("不支持的指令 0x" + String.format("%02X", cmd));
-                    return Protocol.of(cmd, 15);
+    private void closeCardLocked() {
+        closeClassic();
+        closeUltralight();
+        currentTag = null;
+        lastOkMs = 0L;
+        authedKeys.clear();
+    }
+
+    private void closeClassic() {
+        MifareClassic m = mc;
+        mc = null;
+        mcTagId = 0;
+        if (m != null) {
+            try {
+                m.close();
+            } catch (Throwable ignore) {
             }
+        }
+    }
+
+    private void closeUltralight() {
+        MifareUltralight u = mu;
+        mu = null;
+        muTagId = 0;
+        if (u != null) {
+            try {
+                u.close();
+            } catch (Throwable ignore) {
+            }
+        }
+    }
+
+    private static boolean sameTag(Tag a, Tag b) {
+        if (a == b) return true;
+        if (a == null || b == null) return false;
+        byte[] ua = a.getId();
+        byte[] ub = b.getId();
+        return ua != null && ub != null && Arrays.equals(ua, ub);
+    }
+
+    // ------------------------------------------------------------ 连接管理
+
+    /** 取得（必要时建立）Mifare Classic 连接；卡片不是 Classic 时返回 null。 */
+    private MifareClassic classic() {
+        Tag t = currentTag;
+        if (t == null) return null;
+        int id = System.identityHashCode(t);
+        MifareClassic cur = mc;
+        if (cur != null && mcTagId == id) {
+            try {
+                if (cur.isConnected()) return cur;
+            } catch (Throwable ignore) {
+            }
+            closeClassic();
+        } else if (cur != null) {
+            closeClassic();
+        }
+        try {
+            MifareClassic m = MifareClassic.get(t);
+            if (m == null) return null;
+            m.connect();
+            mc = m;
+            mcTagId = id;
+            return m;
+        } catch (Throwable e) {
+            log("连接卡片失败：" + e.getMessage());
+            return null;
+        }
+    }
+
+    /** 取得（必要时建立）Mifare Ultralight 连接。 */
+    private MifareUltralight ultralight() {
+        Tag t = currentTag;
+        if (t == null) return null;
+        int id = System.identityHashCode(t);
+        MifareUltralight cur = mu;
+        if (cur != null && muTagId == id) {
+            try {
+                if (cur.isConnected()) return cur;
+            } catch (Throwable ignore) {
+            }
+            closeUltralight();
+        } else if (cur != null) {
+            closeUltralight();
+        }
+        try {
+            MifareUltralight u = MifareUltralight.get(t);
+            if (u == null) return null;
+            u.connect();
+            mu = u;
+            muTagId = id;
+            return u;
+        } catch (Throwable e) {
+            log("连接卡片失败：" + e.getMessage());
+            return null;
+        }
+    }
+
+    // ------------------------------------------------------------ 认证
+
+    private static int keyIndex(int sector, int keyType) {
+        return (sector << 1) | (keyType & 1);
+    }
+
+    private boolean tryAuth(MifareClassic m, int sector, int keyType, byte[] key) {
+        if (m == null || key == null || key.length != 6) return false;
+        try {
+            boolean ok = (keyType & 1) == 1
+                    ? m.authenticateSectorWithKeyB(sector, key)
+                    : m.authenticateSectorWithKeyA(sector, key);
+            int idx = keyIndex(sector, keyType);
+            if (ok) authedKeys.put(idx, key.clone());
+            else authedKeys.remove(idx);
+            return ok;
         } catch (Throwable t) {
-            log("指令 0x" + String.format("%02X", cmd) + " 失败: " + t);
-            return Protocol.of(cmd, statusIndex(cmd), errFor(cmd));
+            // 认证失败本身也会抛 IOException，所以这里不能当成「卡片离开」
+            return false;
         }
     }
 
-    private static int statusIndex(int cmd) {
-        switch (cmd) {
-            case 0x05: case 0x11: case 0x21: case 0x25: case 0x30: case 0x22:
-            case 0x32: case 0x34: case 0x35: case 0x36: case 0x37:
-                return 1;
-            default:
-                return 2;
+    /**
+     * 确保某个扇区已认证。顺序：缓存命中 → 给定密钥 + 指定类型 → 给定密钥 + 另一类型
+     * → 缓存密钥 → 出厂默认密钥。这样桌面端「先 0x06 认证、再 0x07 读块」的流程才能复用到密钥。
+     */
+    private boolean ensureAuthed(int sector, int keyType, byte[] key) {
+        MifareClassic m = mc;
+        if (m == null) return false;
+        int k = keyType & 1;
+        byte[] useKey = (key != null && key.length == 6) ? key : null;
+
+        byte[] cachedSame = authedKeys.get(keyIndex(sector, k));
+        if (useKey != null && cachedSame != null && Arrays.equals(cachedSame, useKey)) {
+            markOk();
+            return true;
+        }
+        if (useKey != null && tryAuth(m, sector, k, useKey)) {
+            markOk();
+            return true;
+        }
+        if (useKey != null && tryAuth(m, sector, 1 - k, useKey)) {
+            markOk();
+            return true;
+        }
+        byte[] cachedOther = authedKeys.get(keyIndex(sector, 1 - k));
+        byte[] cachedPick = cachedSame != null ? cachedSame : cachedOther;
+        if (cachedPick != null && tryAuth(m, sector, k, cachedPick)) {
+            markOk();
+            return true;
+        }
+        if (cachedOther != null && tryAuth(m, sector, 1 - k, cachedOther)) {
+            markOk();
+            return true;
+        }
+        if (tryAuth(m, sector, k, defaultKey)) {
+            markOk();
+            return true;
+        }
+        if (tryAuth(m, sector, 1 - k, defaultKey)) {
+            markOk();
+            return true;
+        }
+        return false;
+    }
+
+    private void markOk() {
+        lastOkMs = System.currentTimeMillis();
+    }
+
+    // ------------------------------------------------------------ 协议分发
+
+    /** 单一入口：接收命令 DATA，返回应答 DATA。线程安全。 */
+    public byte[] dispatch(byte[] req) {
+        if (req == null || req.length == 0) return Protocol.of(0x00, Protocol.E_RANGE);
+        int cmd = req[0] & 0xFF;
+        synchronized (lock) {
+            try {
+                switch (cmd) {
+                    case Protocol.CMD_INFO:
+                        return handleInfo();
+                    case Protocol.CMD_STATE:
+                        return handleState();
+                    case Protocol.CMD_FIND_CARD:
+                        return handleFindCard();
+                    case Protocol.CMD_KEY_A_CHECK:
+                        return handleKeyCheck(req, 0);
+                    case Protocol.CMD_KEY_B_CHECK:
+                        return handleKeyCheck(req, 1);
+                    case Protocol.CMD_AUTH:
+                        // 0x0A 在固件里是空命令，恒回 AAA 0 0
+                        return Protocol.of(Protocol.CMD_AUTH, 0, 0);
+                    case Protocol.CMD_READ_BLOCK:
+                        return handleReadBlock(req);
+                    case Protocol.CMD_WRITE_BLOCK:
+                    case Protocol.CMD_WRITE_BLOCK_FAST:
+                    case Protocol.CMD_WRITE_BLOCK_NORMAL:
+                        return handleWriteBlock(cmd, req);
+                    case Protocol.CMD_SCAN_CARD:
+                        return handleScanCard();
+                    case Protocol.CMD_WRITE_CARD:
+                        return handleWriteCardNo(req);
+                    case Protocol.CMD_WRITE_UID:
+                        return handleWriteUid(req);
+                    case Protocol.CMD_CHECK_CARD_NO:
+                        return handleCheckCardNo();
+                    case Protocol.CMD_RESET:
+                        closeClassic();
+                        closeUltralight();
+                        authedKeys.clear();
+                        log("已重置卡片连接");
+                        return new byte[]{(byte) Protocol.CMD_RESET, 0};
+                    default:
+                        // 手机读卡器不具备的固件专属命令（破解/低频 ID/封卡等），
+                        // 桌面端在 net 模式下本就有能力守卫，这里再兜一层。
+                        return fail(cmd, Protocol.E_RANGE);
+                }
+            } catch (Throwable t) {
+                log("命令 0x" + String.format("%02X", cmd) + " 执行失败：" + t);
+                return fail(cmd, Protocol.E_NO_CARD);
+            }
         }
     }
 
-    private static int errFor(int cmd) {
-        switch (cmd) {
-            case 0x06: case 0x09: case 0x0A:
-                return Protocol.E_AUTH;
-            case 0x07:
-                return Protocol.E_READ;
-            case 0x08: case 0x16: case 0x18:
-                return Protocol.E_WRITE;
-            case 0x11:
-                return Protocol.E_NO_CARD;
-            default:
-                return Protocol.E_RANGE;
-        }
-    }
-
-    /** 生成带状态码的失败应答：把状态码放到正确下标。 */
-    private static byte[] fail(int cmd, int code) {
-        int idx = statusIndex(cmd);
-        byte[] r = new byte[idx + 1];
+    private byte[] fail(int cmd, int code) {
+        int pos = Protocol.statusPos(cmd);
+        byte[] r = new byte[Math.max(pos + 1, 2)];
         r[0] = (byte) cmd;
-        r[idx] = (byte) (code & 0xFF);
+        r[Math.min(pos, r.length - 1)] = (byte) code;
         return r;
     }
 
-    // ------------------------------------------------------------------ 基础指令
+    // ------------------------------------------------------------ 各命令实现
 
     private byte[] handleInfo() {
-        // [0]=cmd, [1..3]=version(1.0.0), [4..15]=SN(12 字节)
-        byte[] sn = new byte[12];
-        String id = MainActivity.deviceSn();
-        byte[] raw = Protocol.unhex(id);
-        for (int i = 0; i < 12; i++) sn[i] = i < raw.length ? raw[i] : (byte) 0xAA;
         byte[] r = new byte[16];
         r[0] = (byte) Protocol.CMD_INFO;
-        r[1] = 1;
-        r[2] = 0;
-        r[3] = 0;
-        System.arraycopy(sn, 0, r, 4, 12);
+        r[1] = 0x01;   // 版本 1.0.0
+        r[2] = 0x00;
+        r[3] = 0x00;
+        byte[] sn = Protocol.unhex(DeviceInfo.snCacheForProtocol());
+        byte[] sn12 = Protocol.fixed(sn, 12);
+        System.arraycopy(sn12, 0, r, 4, 12);
         return r;
     }
 
     private byte[] handleState() {
-        int level = MainActivity.batteryLevel();
-        return Protocol.of(Protocol.CMD_STATE, level);
+        int bat = DeviceInfo.batteryCache();
+        if (bat < 0 || bat > 100) bat = 0;
+        return Protocol.of(Protocol.CMD_STATE, bat);
     }
 
     private byte[] handleFindCard() {
         Tag t = currentTag;
-        if (t == null || !hasTag()) return fail(Protocol.CMD_FIND_CARD, Protocol.E_NO_CARD);
-        try {
-            byte[] uid = t.getId();
-            NfcA na = NfcA.get(t);
-            int sak = 0;
-            if (na != null) {
-                try {
-                    na.connect();
-                    sak = na.getSak();
-                } finally {
-                    try { na.close(); } catch (Exception ignore) { }
-                }
-            }
-            boolean isClassic = MifareClassic.get(t) != null;
-            if (uid != null && uid.length >= 7) {
-                // 7 字节 UID：type_id=4，桌面端保持原序
-                // 布局: 11 00 04 uid7[7] sak is_uid => 12 字节
-                byte[] r = new byte[12];
-                r[0] = (byte) Protocol.CMD_FIND_CARD;
-                r[1] = 0;
-                r[2] = 4;
-                System.arraycopy(uid, 0, r, 3, 7);
-                r[10] = (byte) (sak & 0xFF);
-                r[11] = 0; // is_uid_card
-                return r;
-            }
-            if (uid == null || uid.length < 4) {
-                return fail(Protocol.CMD_FIND_CARD, Protocol.E_NO_CARD);
-            }
-            // 4 字节 UID：type_id=1(IC) 或 2(UID)；桌面端会对 4 字节做 byte 反序
-            int typeId = isClassic ? 1 : 2;
-            byte[] r = new byte[9];
-            r[0] = (byte) Protocol.CMD_FIND_CARD;
-            r[1] = 0;
-            r[2] = (byte) typeId;
-            // 设备固件回的是反序 UID，桌面端 uid_reverse() 会翻回来，所以这里发反序
-            r[3] = uid[3];
-            r[4] = uid[2];
-            r[5] = uid[1];
-            r[6] = uid[0];
-            r[7] = (byte) (sak & 0xFF);
-            r[8] = 0; // is_uid_card
-            return r;
-        } catch (Exception e) {
-            log("寻卡失败: " + e);
-            return fail(Protocol.CMD_FIND_CARD, Protocol.E_NO_CARD);
+        if (t == null) return Protocol.of(Protocol.CMD_FIND_CARD, Protocol.E_NO_CARD);
+        byte[] uid = t.getId();
+        if (uid == null || uid.length == 0) {
+            return Protocol.of(Protocol.CMD_FIND_CARD, Protocol.E_NO_CARD);
         }
-    }
-
-    private byte[] handleKeyCheck(byte[] req) {
-        int cmd = req[0] & 0xFF;
-        if (req.length < 8) return fail(cmd, Protocol.E_RANGE);
-        int block = req[1] & 0xFF;
-        byte[] key = new byte[6];
-        System.arraycopy(req, 2, key, 0, 6);
-        int keyType = cmd == Protocol.CMD_KEY_B_CHECK ? 1 : 0;
-        boolean ok = authenticate(block, keyType, key);
-        int status = ok ? 0 : Protocol.E_AUTH;
-        byte[] r = new byte[3];
-        r[0] = (byte) cmd;
-        r[1] = (byte) (block & 0xFF);
-        r[2] = (byte) status;
+        int sak = -1;
+        MifareClassic m = classic();
+        if (m != null) {
+            try {
+                sak = sakOf(t);
+            } catch (Throwable ignore) {
+            }
+        }
+        if (sak < 0) {
+            MifareUltralight u = ultralight();
+            if (u == null) {
+                // 连不上卡片 → 认为已经离开
+                closeCardLocked();
+                return Protocol.of(Protocol.CMD_FIND_CARD, Protocol.E_NO_CARD);
+            }
+            sak = 0x00;
+        }
+        boolean isUidCard = false;
+        if (uid.length >= 7) {
+            // 7 字节 UID 卡：桌面端按原序取 d[3..10]
+            byte[] r = new byte[12];
+            r[0] = (byte) Protocol.CMD_FIND_CARD;
+            r[1] = 0x00;
+            r[2] = 0x04;
+            System.arraycopy(uid, 0, r, 3, 7);
+            r[10] = (byte) (sak & 0xFF);
+            r[11] = (byte) (isUidCard ? 1 : 0);
+            markOk();
+            return r;
+        }
+        // 4 字节 UID：桌面端会再反序一次，所以这里要按反序发
+        byte[] r = new byte[9];
+        r[0] = (byte) Protocol.CMD_FIND_CARD;
+        r[1] = 0x00;
+        r[2] = 0x01; // IC 卡
+        r[3] = uid[3];
+        r[4] = uid[2];
+        r[5] = uid[1];
+        r[6] = uid[0];
+        r[7] = (byte) (sak & 0xFF);
+        r[8] = (byte) (isUidCard ? 1 : 0);
+        markOk();
         return r;
     }
 
-    private byte[] handleAuth(byte[] req) {
-        // 0x0A 在原厂固件里是空命令，恒回 0A 00 00
-        return Protocol.of(Protocol.CMD_AUTH, 0, 0);
+    private byte[] handleKeyCheck(byte[] req, int keyType) {
+        int cmd = keyType == 1 ? Protocol.CMD_KEY_B_CHECK : Protocol.CMD_KEY_A_CHECK;
+        if (req.length < 8) return fail(cmd, Protocol.E_RANGE);
+        int block = req[1] & 0xFF;
+        byte[] key = Arrays.copyOfRange(req, 2, 8);
+        MifareClassic m = classic();
+        boolean ok = m != null && tryAuth(m, Protocol.sectorOfBlock(block), keyType, key);
+        if (ok) markOk();
+        return Protocol.of(cmd, block, ok ? 0 : Protocol.E_AUTH);
     }
 
     private byte[] handleReadBlock(byte[] req) {
-        int cmd = Protocol.CMD_READ_BLOCK;
-        if (req.length < 2) return fail(cmd, Protocol.E_RANGE);
+        if (req.length < 2) return fail(Protocol.CMD_READ_BLOCK, Protocol.E_RANGE);
         int block = req[1] & 0xFF;
         int keyType = req.length >= 3 ? (req[2] & 1) : 0;
-        byte[] data = readBlock(block, keyType);
-        if (data == null) return fail(cmd, Protocol.E_READ);
+        byte[] key = req.length >= 9 ? Arrays.copyOfRange(req, 3, 9) : null;
+        byte[] data = readBlockData(block, keyType, key);
+        if (data == null) return fail(Protocol.CMD_READ_BLOCK, Protocol.E_READ);
         byte[] r = new byte[18];
-        r[0] = (byte) cmd;
-        r[1] = 0;
-        System.arraycopy(data, 0, r, 2, 16);
+        r[0] = (byte) Protocol.CMD_READ_BLOCK;
+        r[1] = 0x00;
+        System.arraycopy(Protocol.fixed(data, 16), 0, r, 2, 16);
         return r;
     }
 
-    // ---- 写块：三种布局都要兼容 ----
-
-    private byte[] handleWriteBlock08(byte[] req) {
-        int cmd = Protocol.CMD_WRITE_BLOCK;
-        if (req.length < 4) return fail(cmd, Protocol.E_RANGE);
+    private byte[] handleWriteBlock(int cmd, byte[] req) {
+        if (req.length < 3) return fail(cmd, Protocol.E_RANGE);
         int block = req[1] & 0xFF;
-        // int keyTypeHint = req[2] & 1;
-        byte[] rest = new byte[req.length - 3];
-        System.arraycopy(req, 3, rest, 0, rest.length);
+        List<byte[]> datas = new ArrayList<>();
+        List<byte[]> keys = new ArrayList<>();
 
-        byte[] data;
-        byte[] key;
-        int keyType = 0;
-        if (rest.length >= 22) {
-            // 先假设 data_then_key，用后 6 字节当密钥尝试认证
-            byte[] k1 = slice(rest, 16, 6);
-            byte[] d1 = slice(rest, 0, 16);
-            if (authenticate(block, 0, k1)) {
-                data = d1;
-                key = k1;
-            } else if (authenticate(block, 0, slice(rest, 0, 6))) {
-                // key_then_data
-                key = slice(rest, 0, 6);
-                data = slice(rest, 6, 16);
-            } else if (authenticate(block, 1, k1)) {
-                data = d1;
-                key = k1;
-                keyType = 1;
-            } else if (authenticate(block, 1, slice(rest, 0, 6))) {
-                key = slice(rest, 0, 6);
-                data = slice(rest, 6, 16);
-                keyType = 1;
-            } else {
-                // 认证全失败：按首选布局试写一次（依赖桌面端已预认证）
-                data = d1;
-                key = k1;
+        if (cmd == Protocol.CMD_WRITE_BLOCK_FAST) {
+            // [cmd, blk, data16]
+            if (req.length >= 18) {
+                datas.add(Arrays.copyOfRange(req, 2, 18));
+                keys.add(null);
             }
-        } else if (rest.length >= 16) {
-            data = slice(rest, 0, 16);
-            key = defaultKey;
+        } else if (cmd == Protocol.CMD_WRITE_BLOCK_NORMAL) {
+            // [cmd, blk, 00, data16]
+            if (req.length >= 19) {
+                datas.add(Arrays.copyOfRange(req, 3, 19));
+                keys.add(null);
+            }
+            if (req.length >= 18) {
+                datas.add(Arrays.copyOfRange(req, 2, 18));
+                keys.add(null);
+            }
         } else {
-            return fail(cmd, Protocol.E_RANGE);
+            // 0x08 有四种布局，按桌面端 WRITE_FORMATS 的顺序依次尝试
+            if (req.length == 24) {
+                // D-K16: [cmd, blk, data16, key6]
+                datas.add(Arrays.copyOfRange(req, 2, 18));
+                keys.add(Arrays.copyOfRange(req, 18, 24));
+                // K16-D: [cmd, blk, key6, data16]
+                datas.add(Arrays.copyOfRange(req, 8, 24));
+                keys.add(Arrays.copyOfRange(req, 2, 8));
+            } else if (req.length > 24) {
+                datas.add(Arrays.copyOfRange(req, 2, 18));
+                keys.add(Arrays.copyOfRange(req, req.length - 6, req.length));
+            } else if (req.length >= 19) {
+                // keyed: [cmd, blk, keyType, data16]
+                datas.add(Arrays.copyOfRange(req, 3, 19));
+                keys.add(null);
+                datas.add(Arrays.copyOfRange(req, 2, 18));
+                keys.add(null);
+            } else if (req.length >= 18) {
+                // data only: [cmd, blk, data16]
+                datas.add(Arrays.copyOfRange(req, 2, 18));
+                keys.add(null);
+            }
         }
+        if (datas.isEmpty()) return fail(cmd, Protocol.E_RANGE);
 
-        boolean ok = writeBlock(block, data, keyType, key);
-        return writeResult(cmd, block, ok);
+        boolean wrote = false;
+        for (int i = 0; i < datas.size(); i++) {
+            if (writeBlockData(block, datas.get(i), keys.get(i))) {
+                wrote = true;
+                break;
+            }
+        }
+        return writeResult(cmd, block, wrote ? 0 : Protocol.E_WRITE);
     }
 
-    private byte[] handleWriteBlock16(byte[] req) {
-        // 布局: 16 blk data16
-        int cmd = Protocol.CMD_WRITE_BLOCK_FAST;
-        if (req.length < 18) return fail(cmd, Protocol.E_RANGE);
-        int block = req[1] & 0xFF;
-        byte[] data = slice(req, 2, 16);
-        boolean ok = writeBlock(block, data, 0, defaultKey);
-        return writeResult(cmd, block, ok);
+    private byte[] handleScanCard() {
+        // 全卡扫描由桌面端逐块读完成，这里只回一个空成功
+        return Protocol.of(Protocol.CMD_SCAN_CARD, 0x00);
     }
 
-    private byte[] handleWriteBlock18(byte[] req) {
-        // 布局: 18 blk 00 data16
-        int cmd = Protocol.CMD_WRITE_BLOCK_NORMAL;
-        if (req.length < 19) return fail(cmd, Protocol.E_RANGE);
-        int block = req[1] & 0xFF;
-        byte[] data = slice(req, 3, 16);
-        boolean ok = writeBlock(block, data, 0, defaultKey);
-        return writeResult(cmd, block, ok);
+    /** 0x0C 写卡号：取 5 字节卡号的前 4 字节做 UID，重算 BCC 写块 0。 */
+    private byte[] handleWriteCardNo(byte[] req) {
+        if (req.length < 6) return fail(Protocol.CMD_WRITE_CARD, Protocol.E_RANGE);
+        byte[] cardNo = Arrays.copyOfRange(req, 1, 6);
+        return writeCardNoInternal(cardNo);
     }
 
-    private static byte[] writeResult(int cmd, int block, boolean ok) {
-        byte[] r = new byte[3];
-        r[0] = (byte) cmd;
-        r[1] = (byte) (block & 0xFF);
-        r[2] = (byte) (ok ? 0 : Protocol.E_WRITE);
+    /** 0x27 写 UID：DATA = [0x27, 0x00, uid6]。 */
+    private byte[] handleWriteUid(byte[] req) {
+        if (req.length < 8) return fail(Protocol.CMD_WRITE_UID, Protocol.E_RANGE);
+        byte[] uid6 = Arrays.copyOfRange(req, 2, 8);
+        byte[] uid4 = Arrays.copyOfRange(uid6, 0, 4);
+        byte[] b0 = Protocol.buildBlockZero(uid4, 0x08);
+        byte[] payload = new byte[6];
+        payload[0] = (byte) Protocol.CMD_WRITE_UID;
+        boolean ok = writeBlockData(0, b0, authedKeyOrNull(0));
+        payload[1] = (byte) (ok ? 0 : Protocol.E_UID);
+        lastCardNo = cardNoFromUid(uid4);
+        return payload;
+    }
+
+    private byte[] writeCardNoInternal(byte[] cardNo5) {
+        byte[] uid4 = Arrays.copyOfRange(cardNo5, 0, 4);
+        byte[] b0 = Protocol.buildBlockZero(uid4, 0x08);
+        boolean ok = writeBlockData(0, b0, authedKeyOrNull(0));
+        byte[] r = new byte[2];
+        r[0] = (byte) Protocol.CMD_WRITE_CARD;
+        r[1] = (byte) (ok ? 0 : Protocol.E_WRITE);
+        if (ok) lastCardNo = cardNoFromUid(uid4);
         return r;
     }
 
-    private byte[] handleWriteCardNo(byte[] req, int cmd) {
-        // 0x0C: [cmd] + 5 字节卡号；0x27: [cmd, 00] + 6 字节 UID
-        byte[] uid;
-        if (cmd == Protocol.CMD_WRITE_UID) {
-            if (req.length < 8) return fail(cmd, Protocol.E_RANGE);
-            uid = slice(req, 2, 6);
-        } else {
-            if (req.length < 6) return fail(cmd, Protocol.E_RANGE);
-            byte[] no = slice(req, 1, 5);
-            uid = new byte[6];
-            uid[0] = no[0];
-            uid[1] = no[1];
-            uid[2] = no[2];
-            uid[3] = no[3];
-            uid[4] = (byte) bcc(no[0], no[1], no[2], no[3]);
-            uid[5] = 0x08;
-        }
-        // 写块 0：UID[4] + BCC + SAK + ATQA(2) + 厂商(8)
-        byte[] block0 = new byte[16];
-        block0[0] = uid[0];
-        block0[1] = uid[1];
-        block0[2] = uid[2];
-        block0[3] = uid[3];
-        block0[4] = (byte) bcc(uid[0], uid[1], uid[2], uid[3]);
-        block0[5] = 0x08;   // SAK
-        block0[6] = 0x04;   // ATQA lo
-        block0[7] = 0x00;   // ATQA hi
-        // 后 8 字节厂商数据保持 0（部分魔术卡要求）
-        boolean ok = writeBlock(0, block0, 0, defaultKey);
-        if (!ok) {
-            log("写卡号/UID 失败：块 0 被写保护（该卡不是 UID 可写卡或需要专用指令）");
-        }
-        return writeResult(cmd, 0, ok);
+    private static byte[] cardNoFromUid(byte[] uid4) {
+        byte[] c = new byte[5];
+        System.arraycopy(uid4, 0, c, 0, Math.min(4, uid4.length));
+        c[4] = (byte) Protocol.bcc(uid4);
+        return c;
     }
 
+    private byte[] authedKeyOrNull(int block) {
+        int sector = Protocol.sectorOfBlock(block);
+        byte[] a = authedKeys.get(keyIndex(sector, 0));
+        if (a == null) a = authedKeys.get(keyIndex(sector, 1));
+        return a == null ? null : a.clone();
+    }
+
+    private byte[] writeResult(int cmd, int block, int status) {
+        return Protocol.of(cmd, block, status);
+    }
+
+    /**
+     * 0x24 卡号校验：与最近一次写入的卡号比对。
+     * 桌面端解析 status==1 通过 / 2 未知 / 7 卡片不符。
+     */
     private byte[] handleCheckCardNo() {
-        if (!hasTag()) return fail(Protocol.CMD_CHECK_CARD_NO, Protocol.E_NO_CARD);
-        // 手机端无法得知期望卡号，返回 status=1（通过）交给桌面端按当前卡号显示
-        return Protocol.of(Protocol.CMD_CHECK_CARD_NO, 1);
-    }
-
-    // ------------------------------------------------------------------ 卡片操作
-
-    private static int bcc(byte... b) {
-        int x = 0;
-        for (byte v : b) x ^= (v & 0xFF);
-        return x & 0xFF;
-    }
-
-    private static byte[] slice(byte[] src, int off, int len) {
-        byte[] r = new byte[len];
-        System.arraycopy(src, off, r, 0, Math.min(len, src.length - off));
-        return r;
-    }
-
-    private static int sectorOfBlock(int block) {
-        if (block < 128) return block / 4;
-        return 32 + (block - 128) / 16;
-    }
-
-    private MifareClassic openClassic() {
         Tag t = currentTag;
-        if (t == null) return null;
-        MifareClassic mc = MifareClassic.get(t);
-        if (mc == null) return null;
-        try {
-            mc.connect();
-            return mc;
-        } catch (IOException e) {
-            log("连接卡片失败: " + e);
-            return null;
-        }
+        if (t == null) return Protocol.of(Protocol.CMD_CHECK_CARD_NO, 7);
+        byte[] expect = lastCardNo;
+        if (expect == null) return Protocol.of(Protocol.CMD_CHECK_CARD_NO, 2);
+        byte[] uid = t.getId();
+        if (uid == null || uid.length < 4) return Protocol.of(Protocol.CMD_CHECK_CARD_NO, 2);
+        boolean same = uid[0] == expect[0] && uid[1] == expect[1]
+                && uid[2] == expect[2] && uid[3] == expect[3];
+        return Protocol.of(Protocol.CMD_CHECK_CARD_NO, same ? 1 : 7);
     }
 
-    private static void closeQuietly(MifareClassic mc) {
-        if (mc != null) {
-            try { mc.close(); } catch (Exception ignore) { }
-        }
-    }
+    // ------------------------------------------------------------ 底层读写
 
-    private boolean authenticate(int block, int keyType, byte[] key) {
-        if (key == null || key.length != 6) return false;
-        int sector = sectorOfBlock(block);
-        int cacheKey = (sector << 1) | (keyType & 1);
-        if (Boolean.TRUE.equals(authed.get(cacheKey))) return true;
-        MifareClassic mc = openClassic();
-        if (mc == null) return false;
-        try {
-            boolean ok = keyType == 1
-                    ? mc.authenticateSectorWithKeyB(sector, key)
-                    : mc.authenticateSectorWithKeyA(sector, key);
-            if (ok) authed.put(cacheKey, true);
-            return ok;
-        } catch (Exception e) {
-            Log.d(TAG, "auth fail block=" + block + " keyType=" + keyType + ": " + e);
-            return false;
-        } finally {
-            closeQuietly(mc);
-        }
-    }
-
-    private byte[] readBlock(int block, int keyType) {
-        MifareClassic mc = openClassic();
-        if (mc == null) return null;
-        try {
-            int sector = sectorOfBlock(block);
-            boolean ok = keyType == 1
-                    ? mc.authenticateSectorWithKeyB(sector, defaultKey)
-                    : mc.authenticateSectorWithKeyA(sector, defaultKey);
-            if (!ok) {
-                // 试另一个密钥类型
-                ok = keyType == 1
-                        ? mc.authenticateSectorWithKeyA(sector, defaultKey)
-                        : mc.authenticateSectorWithKeyB(sector, defaultKey);
+    /** 读一块，返回 16 字节；失败返回 null。 */
+    public byte[] readBlockData(int block, int keyType, byte[] key) {
+        if (block < 0) return null;
+        MifareClassic m = classic();
+        if (m != null) {
+            if (!ensureAuthed(Protocol.sectorOfBlock(block), keyType, key)) return null;
+            try {
+                byte[] d = m.readBlock(block);
+                markOk();
+                return Protocol.fixed(d, 16);
+            } catch (Throwable e) {
+                log("读块 " + block + " 失败：" + e.getMessage());
+                return null;
             }
-            if (!ok) return null;
-            byte[] d = mc.readBlock(block);
-            if (d == null || d.length < 16) return null;
-            return d;
-        } catch (Exception e) {
-            log("读块 " + block + " 失败: " + e);
-            return null;
-        } finally {
-            closeQuietly(mc);
         }
+        MifareUltralight u = ultralight();
+        if (u != null) {
+            try {
+                byte[] d = u.readPages(block * 4);
+                markOk();
+                return Protocol.fixed(d, 16);
+            } catch (Throwable e) {
+                log("读页 " + (block * 4) + " 失败：" + e.getMessage());
+                return null;
+            }
+        }
+        return null;
     }
 
-    private boolean writeBlock(int block, byte[] data, int keyType, byte[] key) {
-        if (data == null || data.length < 16) return false;
-        MifareClassic mc = openClassic();
-        if (mc == null) return false;
-        try {
-            int sector = sectorOfBlock(block);
-            byte[] useKey = (key != null && key.length == 6) ? key : defaultKey;
-            boolean ok = keyType == 1
-                    ? mc.authenticateSectorWithKeyB(sector, useKey)
-                    : mc.authenticateSectorWithKeyA(sector, useKey);
-            if (!ok) {
-                ok = keyType == 1
-                        ? mc.authenticateSectorWithKeyA(sector, useKey)
-                        : mc.authenticateSectorWithKeyB(sector, useKey);
-            }
-            if (!ok) {
-                log("写块 " + block + " 认证失败");
+    /** 单参数版本（本机工具用），默认 KEY A。 */
+    public byte[] readBlockData(int block, byte[] key) {
+        return readBlockData(block, 0, key);
+    }
+
+    /** 写一块（16 字节）；失败返回 false。 */
+    public boolean writeBlockData(int block, byte[] data, byte[] key) {
+        if (block < 0) return false;
+        byte[] d16 = Protocol.fixed(data, 16);
+        MifareClassic m = classic();
+        if (m != null) {
+            if (!ensureAuthed(Protocol.sectorOfBlock(block), 0, key)) {
+                log("写块 " + block + " 失败：认证未通过");
                 return false;
             }
-            mc.writeBlock(block, slice(data, 0, 16));
-            return true;
-        } catch (Exception e) {
-            log("写块 " + block + " 失败: " + e);
-            return false;
-        } finally {
-            closeQuietly(mc);
+            try {
+                m.writeBlock(block, d16);
+                markOk();
+                return true;
+            } catch (Throwable e) {
+                log("写块 " + block + " 失败：" + e.getMessage());
+                return false;
+            }
         }
+        MifareUltralight u = ultralight();
+        if (u != null) {
+            try {
+                int page = block * 4;
+                for (int i = 0; i < 4; i++) {
+                    u.writePage(page + i, new byte[]{
+                            d16[i * 4], d16[i * 4 + 1], d16[i * 4 + 2], d16[i * 4 + 3]
+                    });
+                }
+                markOk();
+                return true;
+            } catch (Throwable e) {
+                log("写页失败：" + e.getMessage());
+                return false;
+            }
+        }
+        return false;
+    }
+
+    /** 显式认证某扇区（本机工具用）。 */
+    public boolean authSector(int sector, int keyType, byte[] key) {
+        MifareClassic m = classic();
+        if (m == null) return false;
+        boolean ok = tryAuth(m, sector, keyType, key);
+        if (ok) markOk();
+        return ok;
+    }
+
+    /**
+     * 逐块读取某个扇区（本机工具用）。
+     * 返回每个块一行格式化文本；读失败返回 null。
+     */
+    public List<String> readSectorLines(int sector, byte[] key) {
+        List<String> out = new ArrayList<>();
+        MifareClassic m = classic();
+        if (m == null) return null;
+        if (!ensureAuthed(sector, 0, key)) return null;
+        int first = Protocol.firstBlockOfSector(sector);
+        int count = Protocol.blocksOfSector(sector);
+        for (int i = 0; i < count; i++) {
+            int block = first + i;
+            try {
+                byte[] d = m.readBlock(block);
+                String tag = Protocol.isTrailerBlock(block) ? "（尾块·密钥/控制位）" : "";
+                out.add(String.format("块 %-3d  %s %s", block, Protocol.hexSpaced(d), tag));
+                markOk();
+            } catch (Throwable e) {
+                out.add("块 " + block + "  读取失败：" + e.getMessage());
+                break;
+            }
+        }
+        return out;
+    }
+
+    /** 读卡信息（本机工具用）。 */
+    public CardInfo readCardInfo() {
+        CardInfo ci = new CardInfo();
+        Tag t = currentTag;
+        if (t == null) {
+            ci.note = "没有检测到卡片，请把卡贴到手机背面 NFC 区域";
+            return ci;
+        }
+        ci.present = true;
+        byte[] uid = t.getId();
+        ci.uid = Protocol.hex(uid);
+        ci.techs = joinTechs(t.getTechList());
+
+        if (mc == null) {
+            byte[] atqa = readAtqa(t);
+            if (atqa != null) ci.atqa = Protocol.hex(atqa);
+        }
+
+        MifareClassic m = classic();
+        if (m != null) {
+            try {
+                ci.sak = sakOf(t);
+                ci.sectorCount = m.getSectorCount();
+                ci.blockCount = m.getBlockCount();
+                ci.sizeBytes = m.getSize();
+                int mt = m.getType();
+                if (mt == MifareClassic.TYPE_CLASSIC) ci.mifareType = "Mifare Classic";
+                else if (mt == MifareClassic.TYPE_PLUS) ci.mifareType = "Mifare Plus";
+                else if (mt == MifareClassic.TYPE_PRO) ci.mifareType = "Mifare Pro";
+                else ci.mifareType = "未知";
+            } catch (Throwable e) {
+                ci.note = "读取卡片参数失败：" + e.getMessage();
+            }
+            ci.typeId = uid != null && uid.length >= 7 ? 4 : 1;
+        } else {
+            MifareUltralight u = ultralight();
+            if (u != null) {
+                ci.typeId = uid != null && uid.length >= 7 ? 4 : 1;
+                ci.mifareType = "Mifare Ultralight / NTAG";
+                ci.blockCount = 16;
+                ci.sectorCount = 4;
+                ci.sizeBytes = 64;
+            } else {
+                ci.typeId = uid != null && uid.length >= 7 ? 4 : 2;
+                ci.mifareType = "非 Mifare 卡";
+            }
+        }
+        String[] cls = Protocol.classify(ci.typeId, ci.sak);
+        ci.className = cls[0];
+        ci.label = cls[1];
+        ci.note = ci.note.isEmpty() ? cls[2] : ci.note;
+        if (ci.typeName.equals("未知")) {
+            ci.typeName = Protocol.CARD_TYPE[Math.min(ci.typeId, Protocol.CARD_TYPE.length - 1)];
+        }
+        markOk();
+        return ci;
+    }
+
+    private byte[] readAtqa(Tag t) {
+        try {
+            NfcA na = NfcA.get(t);
+            if (na == null) return null;
+            na.connect();
+            byte[] a = na.getAtqa();
+            try {
+                na.close();
+            } catch (Throwable ignore) {
+            }
+            return a;
+        } catch (Throwable e) {
+            return null;
+        }
+    }
+
+    private static String joinTechs(String[] techs) {
+        if (techs == null || techs.length == 0) return "";
+        StringBuilder sb = new StringBuilder();
+        for (String s : techs) {
+            if (s == null) continue;
+            int i = s.lastIndexOf('.');
+            String n = i >= 0 ? s.substring(i + 1) : s;
+            if (sb.length() > 0) sb.append(" · ");
+            sb.append(n);
+        }
+        return sb.toString();
+    }
+
+    /** 卡片是否还物理在位（会真的发一次寻卡指令）。 */
+    public boolean probePresence() {
+        Tag t = currentTag;
+        if (t == null) return false;
+        try {
+            MifareClassic m = classic();
+            if (m != null) {
+                // 读块 0，成功就说明卡还在
+                if (ensureAuthed(0, 0, null)) {
+                    m.readBlock(0);
+                    markOk();
+                    return true;
+                }
+                return m.isConnected();
+            }
+            MifareUltralight u = ultralight();
+            if (u != null) {
+                u.readPages(0);
+                markOk();
+                return true;
+            }
+        } catch (Throwable ignore) {
+        }
+        return false;
     }
 }

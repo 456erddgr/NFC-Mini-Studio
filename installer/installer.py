@@ -32,7 +32,7 @@ if sys.stderr is None:
     sys.stderr = open(os.devnull, "w")
 
 APP_NAME = "NFC Mini Studio"
-APP_VERSION = "3.0.0"
+APP_VERSION = "3.1.0"
 PUBLISHER = "只因君"
 EXE_NAME = "NFC Mini Studio.exe"
 UNINST_NAME = "卸载 NFC Mini Studio.bat"

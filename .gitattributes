@@ -28,3 +28,5 @@
 app/web/**        linguist-vendored=false
 docs/**           linguist-documentation
 android/**/*.java linguist-language=Java
+*.jks binary
+*.keystore binary

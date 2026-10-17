@@ -1,31 +1,47 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
     <string name="app_name">NFC 手机读卡器</string>
-    <string name="subtitle">把手机变成电脑的通用 NFC 读卡器</string>
+    <string name="app_subtitle">把手机变成电脑的 NFC 读卡器</string>
+    <string name="footer_hint">NFC Mini Studio · 手机读卡器 · 使用期间请保持本页面在前台，NFC 才能持续读卡</string>
 
-    <string name="section_status">运行状态</string>
-    <string name="section_network">网络信息</string>
-    <string name="section_guide">使用步骤</string>
-    <string name="section_log">运行日志</string>
+    <!-- 状态胶囊 -->
+    <string name="pill_nfc">NFC：检测中</string>
+    <string name="pill_net">网络：检测中</string>
+    <string name="pill_card">卡片：无</string>
 
-    <string name="nfc_checking">正在检测 NFC…</string>
-    <string name="nfc_ready">NFC 已就绪 ✓</string>
-    <string name="nfc_disabled">NFC 未开启，请点下方「打开 NFC 设置」</string>
-    <string name="nfc_unsupported">此手机不支持 NFC，无法作为读卡器使用</string>
+    <!-- 读卡服务 -->
+    <string name="sec_service">读卡服务</string>
+    <string name="service_stopped">未启动</string>
+    <string name="start_service">启动服务</string>
+    <string name="clients_none">0 个电脑连接</string>
+    <string name="open_nfc">去开启 NFC</string>
+    <string name="reprobe">重新检测</string>
 
-    <string name="card_none">未检测到卡片，请把卡贴到手机背面</string>
-    <string name="card_present">已识别卡片：%1$s</string>
+    <!-- 本机读卡 -->
+    <string name="sec_card">本机读卡</string>
+    <string name="sec_card_hint">不连电脑也能用：贴卡即可读 UID 与扇区数据</string>
+    <string name="card_uid_placeholder">把卡贴到手机背面 NFC 区域…</string>
+    <string name="btn_read_info">读取卡片信息</string>
+    <string name="btn_read_sector">读扇区</string>
+    <string name="btn_copy_uid">复制 UID</string>
 
-    <string name="service_stopped">读卡服务已停止</string>
-    <string name="service_running">读卡服务运行中 ✓</string>
+    <!-- 背景与外观 -->
+    <string name="sec_wallpaper">背景与外观</string>
+    <string name="blur_label">背景模糊 18</string>
+    <string name="btn_pick_wallpaper">从相册选择背景</string>
+    <string name="sw_glass">液态玻璃效果</string>
+    <string name="sw_light">浅色主题</string>
 
-    <string name="label_ip">本机 IP</string>
-    <string name="label_tcp">TCP 端口</string>
-    <string name="label_clients">已连接电脑</string>
+    <!-- 设置 -->
+    <string name="sec_settings">设置</string>
+    <string name="sw_keep_screen">保持屏幕常亮</string>
+    <string name="sw_vibrate">读卡震动反馈</string>
+    <string name="sw_autostart">打开应用时自动启动服务</string>
+    <string name="port_hint">TCP 端口（1024-65535）</string>
+    <string name="btn_apply_port">应用</string>
 
-    <string name="btn_start">启动读卡服务</string>
-    <string name="btn_stop">停止读卡服务</string>
-    <string name="btn_nfc_settings">打开 NFC 设置</string>
-
-    <string name="guide_body">1. 确认手机已开启 NFC（设置 → 更多连接 → NFC）。\n2. 手机和电脑连接到同一个 Wi-Fi。\n3. 点上方「启动读卡服务」，服务会自动运行。\n4. 在电脑上打开「NFC Mini Studio」→「设备」→ 选择「手机读卡器」→ 点「搜索手机读卡器」，选中本机并连接。\n5. 之后把 NFC 卡贴到手机背面的 NFC 感应区，电脑上即可读卡、写卡、导出整卡数据。\n\n注意：手机 NFC 只支持 13.56 MHz 的 IC / UID 卡（Mifare Classic 等），不支持 125 kHz 的 ID 卡；破解类功能需要原厂蓝牙读卡器。手机屏幕需保持常亮，本应用已自动保持常亮。</string>
+    <!-- 日志 -->
+    <string name="sec_log">运行日志</string>
+    <string name="btn_copy_log">复制</string>
+    <string name="btn_clear_log">清空</string>
 </resources>

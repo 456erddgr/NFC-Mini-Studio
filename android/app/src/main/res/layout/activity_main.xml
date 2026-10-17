@@ -1,271 +1,579 @@
 <?xml version="1.0" encoding="utf-8"?>
-<ScrollView xmlns:android="http://schemas.android.com/apk/res/android"
-    xmlns:app="http://schemas.android.com/apk/res-auto"
+<!--
+  主界面：液态玻璃风格。
+  背景由代码在运行时生成（壁纸 + 模糊），卡片/胶囊的玻璃质感也在代码里画，
+  这样切换浅色/深色主题、调整模糊强度都不需要额外的 XML 资源。
+-->
+<FrameLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/rootLayout"
     android:layout_width="match_parent"
     android:layout_height="match_parent"
-    android:background="@color/bg"
-    android:fillViewport="true">
+    android:background="#FF0B1020">
 
-    <LinearLayout
+    <ImageView
+        android:id="@+id/imgWallpaper"
         android:layout_width="match_parent"
-        android:layout_height="wrap_content"
-        android:orientation="vertical"
-        android:padding="16dp">
+        android:layout_height="match_parent"
+        android:contentDescription="@string/app_name"
+        android:scaleType="centerCrop" />
 
-        <!-- 标题 -->
-        <TextView
+    <View
+        android:id="@+id/scrimView"
+        android:layout_width="match_parent"
+        android:layout_height="match_parent" />
+
+    <ScrollView
+        android:layout_width="match_parent"
+        android:layout_height="match_parent"
+        android:clipToPadding="false"
+        android:fillViewport="true"
+        android:overScrollMode="never"
+        android:scrollbars="none">
+
+        <LinearLayout
             android:layout_width="match_parent"
             android:layout_height="wrap_content"
-            android:text="@string/app_name"
-            android:textColor="@color/text_primary"
-            android:textSize="22sp"
-            android:textStyle="bold" />
+            android:orientation="vertical"
+            android:paddingStart="16dp"
+            android:paddingTop="44dp"
+            android:paddingEnd="16dp"
+            android:paddingBottom="36dp">
 
-        <TextView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="4dp"
-            android:text="@string/subtitle"
-            android:textColor="@color/text_secondary"
-            android:textSize="13sp" />
-
-        <!-- 状态卡片 -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            app:cardBackgroundColor="@color/card"
-            app:cardCornerRadius="14dp"
-            app:cardElevation="0dp"
-            app:strokeColor="@color/stroke"
-            app:strokeWidth="1dp">
-
+            <!-- ======================= 标题 ======================= -->
             <LinearLayout
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/section_status"
-                    android:textColor="@color/text_primary"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
-
-                <TextView
-                    android:id="@+id/tvNfcState"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:text="@string/nfc_checking"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/tvCardState"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="@string/card_none"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="14sp" />
-
-                <TextView
-                    android:id="@+id/tvServiceState"
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:text="@string/service_stopped"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="14sp" />
-            </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-
-        <!-- 网络信息 -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            app:cardBackgroundColor="@color/card"
-            app:cardCornerRadius="14dp"
-            app:cardElevation="0dp"
-            app:strokeColor="@color/stroke"
-            app:strokeWidth="1dp">
-
-            <LinearLayout
-                android:layout_width="match_parent"
-                android:layout_height="wrap_content"
-                android:orientation="vertical"
-                android:padding="16dp">
-
-                <TextView
-                    android:layout_width="wrap_content"
-                    android:layout_height="wrap_content"
-                    android:text="@string/section_network"
-                    android:textColor="@color/text_primary"
-                    android:textSize="15sp"
-                    android:textStyle="bold" />
+                android:gravity="center_vertical"
+                android:orientation="horizontal"
+                android:paddingStart="4dp"
+                android:paddingEnd="4dp">
 
                 <LinearLayout
-                    android:layout_width="match_parent"
+                    android:layout_width="0dp"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="10dp"
-                    android:orientation="horizontal">
+                    android:layout_weight="1"
+                    android:orientation="vertical">
 
                     <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/label_ip"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="14sp" />
-
-                    <TextView
-                        android:id="@+id/tvIp"
+                        android:id="@+id/tvTitle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="—"
-                        android:textColor="@color/accent"
-                        android:textSize="14sp"
+                        android:text="@string/app_name"
+                        android:textColor="#FFE9EFF7"
+                        android:textSize="24sp"
                         android:textStyle="bold" />
-                </LinearLayout>
-
-                <LinearLayout
-                    android:layout_width="match_parent"
-                    android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
-                    android:orientation="horizontal">
 
                     <TextView
-                        android:layout_width="0dp"
-                        android:layout_height="wrap_content"
-                        android:layout_weight="1"
-                        android:text="@string/label_tcp"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="14sp" />
-
-                    <TextView
-                        android:id="@+id/tvTcp"
+                        android:id="@+id/tvSubtitle"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="8765"
-                        android:textColor="@color/text_primary"
-                        android:textSize="14sp" />
+                        android:layout_marginTop="3dp"
+                        android:text="@string/app_subtitle"
+                        android:textColor="#FF9AA6B8"
+                        android:textSize="12.5sp" />
                 </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvVersion"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="v1.1.0"
+                    android:textColor="#FF9AA6B8"
+                    android:textSize="11.5sp" />
+            </LinearLayout>
+
+            <!-- ======================= 状态胶囊 ======================= -->
+            <LinearLayout
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="horizontal">
+
+                <TextView
+                    android:id="@+id/pillNfc"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginEnd="7dp"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:paddingTop="7dp"
+                    android:paddingBottom="7dp"
+                    android:text="@string/pill_nfc"
+                    android:textColor="#FF9AA6B8"
+                    android:textSize="11.5sp" />
+
+                <TextView
+                    android:id="@+id/pillNet"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_marginStart="0dp"
+                    android:layout_marginEnd="7dp"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:paddingTop="7dp"
+                    android:paddingBottom="7dp"
+                    android:text="@string/pill_net"
+                    android:textColor="#FF9AA6B8"
+                    android:textSize="11.5sp" />
+
+                <TextView
+                    android:id="@+id/pillCard"
+                    android:layout_width="0dp"
+                    android:layout_height="wrap_content"
+                    android:layout_weight="1"
+                    android:gravity="center"
+                    android:paddingTop="7dp"
+                    android:paddingBottom="7dp"
+                    android:text="@string/pill_card"
+                    android:textColor="#FF9AA6B8"
+                    android:textSize="11.5sp" />
+            </LinearLayout>
+
+            <!-- ======================= 读卡服务 ======================= -->
+            <LinearLayout
+                android:id="@+id/cardService"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="16dp"
+                android:orientation="vertical"
+                android:padding="18dp">
 
                 <LinearLayout
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
-                    android:layout_marginTop="6dp"
+                    android:gravity="center_vertical"
                     android:orientation="horizontal">
 
                     <TextView
+                        android:id="@+id/secService"
                         android:layout_width="0dp"
                         android:layout_height="wrap_content"
                         android:layout_weight="1"
-                        android:text="@string/label_clients"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="14sp" />
+                        android:text="@string/sec_service"
+                        android:textColor="#FFE9EFF7"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/tvServiceState"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="@string/service_stopped"
+                        android:textColor="#FF9AA6B8"
+                        android:textSize="12.5sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvEndpoint"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:fontFamily="monospace"
+                    android:text="—"
+                    android:textColor="#FFE9EFF7"
+                    android:textSize="19sp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:orientation="horizontal">
 
                     <TextView
                         android:id="@+id/tvClients"
                         android:layout_width="wrap_content"
                         android:layout_height="wrap_content"
-                        android:text="0"
-                        android:textColor="@color/text_primary"
-                        android:textSize="14sp" />
+                        android:text="@string/clients_none"
+                        android:textColor="#FF9AA6B8"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/chipPort"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="10dp"
+                        android:paddingStart="10dp"
+                        android:paddingTop="2dp"
+                        android:paddingEnd="10dp"
+                        android:paddingBottom="2dp"
+                        android:text="端口 8765"
+                        android:textColor="#FF9AA6B8"
+                        android:textSize="11sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/btnService"
+                    android:layout_width="match_parent"
+                    android:layout_height="50dp"
+                    android:layout_marginTop="14dp"
+                    android:gravity="center"
+                    android:text="@string/start_service"
+                    android:textColor="#FFFFFFFF"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/btnNfcSettings"
+                    android:layout_width="match_parent"
+                    android:layout_height="42dp"
+                    android:layout_marginTop="10dp"
+                    android:gravity="center"
+                    android:text="@string/open_nfc"
+                    android:textColor="#FFFFC46B"
+                    android:textSize="13sp"
+                    android:visibility="gone" />
+
+                <TextView
+                    android:id="@+id/btnReprobe"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_horizontal"
+                    android:layout_marginTop="10dp"
+                    android:paddingStart="14dp"
+                    android:paddingTop="6dp"
+                    android:paddingEnd="14dp"
+                    android:paddingBottom="6dp"
+                    android:text="@string/reprobe"
+                    android:textColor="#FF9AA6B8"
+                    android:textSize="11.5sp" />
+            </LinearLayout>
+
+            <!-- ======================= 本机读卡 ======================= -->
+            <LinearLayout
+                android:id="@+id/cardCard"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="vertical"
+                android:padding="18dp">
+
+                <TextView
+                    android:id="@+id/secCard"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:text="@string/sec_card"
+                    android:textColor="#FFE9EFF7"
+                    android:textSize="15sp"
+                    android:textStyle="bold" />
+
+                <TextView
+                    android:id="@+id/tvCardLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:text="@string/sec_card_hint"
+                    android:textColor="#FF9AA6B8"
+                    android:textSize="11.5sp" />
+
+                <TextView
+                    android:id="@+id/tvCardUid"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:fontFamily="monospace"
+                    android:text="@string/card_uid_placeholder"
+                    android:textColor="#FFE9EFF7"
+                    android:textSize="17sp" />
+
+                <TextView
+                    android:id="@+id/tvCardType"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:text="—"
+                    android:textColor="#FF9AA6B8"
+                    android:textSize="12.5sp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="6dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/tvCardTech"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="—"
+                        android:textColor="#FF9AA6B8"
+                        android:textSize="12sp" />
+
+                    <TextView
+                        android:id="@+id/tvCardSak"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:text="—"
+                        android:textColor="#FF9AA6B8"
+                        android:textSize="12sp" />
+                </LinearLayout>
+
+                <TextView
+                    android:id="@+id/tvCardSize"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="—"
+                    android:textColor="#FF9AA6B8"
+                    android:textSize="12sp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/btnReadInfo"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:text="@string/btn_read_info"
+                        android:textColor="#FFE9EFF7"
+                        android:textSize="12.5sp" />
+
+                    <TextView
+                        android:id="@+id/btnReadSector"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_marginEnd="8dp"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:text="@string/btn_read_sector"
+                        android:textColor="#FFE9EFF7"
+                        android:textSize="12.5sp" />
+
+                    <TextView
+                        android:id="@+id/btnCopyUid"
+                        android:layout_width="0dp"
+                        android:layout_height="40dp"
+                        android:layout_weight="1"
+                        android:gravity="center"
+                        android:text="@string/btn_copy_uid"
+                        android:textColor="#FFE9EFF7"
+                        android:textSize="12.5sp" />
                 </LinearLayout>
             </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
 
-        <!-- 按钮 -->
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnService"
-            android:layout_width="match_parent"
-            android:layout_height="52dp"
-            android:layout_marginTop="16dp"
-            android:text="@string/btn_start"
-            android:textSize="16sp"
-            app:cornerRadius="14dp" />
-
-        <com.google.android.material.button.MaterialButton
-            android:id="@+id/btnNfcSettings"
-            style="@style/Widget.MaterialComponents.Button.OutlinedButton"
-            android:layout_width="match_parent"
-            android:layout_height="48dp"
-            android:layout_marginTop="10dp"
-            android:text="@string/btn_nfc_settings"
-            android:textSize="14sp"
-            app:cornerRadius="14dp" />
-
-        <!-- 使用说明 -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="16dp"
-            app:cardBackgroundColor="@color/card"
-            app:cardCornerRadius="14dp"
-            app:cardElevation="0dp"
-            app:strokeColor="@color/stroke"
-            app:strokeWidth="1dp">
-
+            <!-- ======================= 背景与外观 ======================= -->
             <LinearLayout
+                android:id="@+id/cardWall"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="18dp">
 
                 <TextView
+                    android:id="@+id/secWall"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/section_guide"
-                    android:textColor="@color/text_primary"
+                    android:text="@string/sec_wallpaper"
+                    android:textColor="#FFE9EFF7"
                     android:textSize="15sp"
                     android:textStyle="bold" />
 
+                <HorizontalScrollView
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:overScrollMode="never"
+                    android:scrollbars="none">
+
+                    <LinearLayout
+                        android:id="@+id/wallpaperStrip"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:gravity="center_vertical"
+                        android:orientation="horizontal" />
+                </HorizontalScrollView>
+
                 <TextView
+                    android:id="@+id/tvBlurLabel"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="14dp"
+                    android:text="@string/blur_label"
+                    android:textColor="#FF9AA6B8"
+                    android:textSize="12sp" />
+
+                <SeekBar
+                    android:id="@+id/seekBlur"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="2dp"
+                    android:max="40" />
+
+                <TextView
+                    android:id="@+id/btnPickWallpaper"
+                    android:layout_width="match_parent"
+                    android:layout_height="42dp"
+                    android:layout_marginTop="8dp"
+                    android:gravity="center"
+                    android:text="@string/btn_pick_wallpaper"
+                    android:textColor="#FFE9EFF7"
+                    android:textSize="12.5sp" />
+
+                <Switch
+                    android:id="@+id/swGlass"
                     android:layout_width="match_parent"
                     android:layout_height="wrap_content"
                     android:layout_marginTop="10dp"
-                    android:lineSpacingExtra="4dp"
-                    android:text="@string/guide_body"
-                    android:textColor="@color/text_secondary"
-                    android:textSize="13sp" />
+                    android:text="@string/sw_glass"
+                    android:textColor="#FFE9EFF7"
+                    android:textSize="13.5sp" />
+
+                <Switch
+                    android:id="@+id/swLight"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/sw_light"
+                    android:textColor="#FFE9EFF7"
+                    android:textSize="13.5sp" />
             </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
 
-        <!-- 日志 -->
-        <com.google.android.material.card.MaterialCardView
-            android:layout_width="match_parent"
-            android:layout_height="wrap_content"
-            android:layout_marginTop="12dp"
-            android:layout_marginBottom="24dp"
-            app:cardBackgroundColor="@color/card"
-            app:cardCornerRadius="14dp"
-            app:cardElevation="0dp"
-            app:strokeColor="@color/stroke"
-            app:strokeWidth="1dp">
-
+            <!-- ======================= 设置 ======================= -->
             <LinearLayout
+                android:id="@+id/cardSettings"
                 android:layout_width="match_parent"
                 android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
                 android:orientation="vertical"
-                android:padding="16dp">
+                android:padding="18dp">
 
                 <TextView
+                    android:id="@+id/secSettings"
                     android:layout_width="wrap_content"
                     android:layout_height="wrap_content"
-                    android:text="@string/section_log"
-                    android:textColor="@color/text_primary"
+                    android:text="@string/sec_settings"
+                    android:textColor="#FFE9EFF7"
                     android:textSize="15sp"
                     android:textStyle="bold" />
+
+                <Switch
+                    android:id="@+id/swKeepScreen"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="10dp"
+                    android:text="@string/sw_keep_screen"
+                    android:textColor="#FFE9EFF7"
+                    android:textSize="13.5sp" />
+
+                <Switch
+                    android:id="@+id/swVibrate"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/sw_vibrate"
+                    android:textColor="#FFE9EFF7"
+                    android:textSize="13.5sp" />
+
+                <Switch
+                    android:id="@+id/swAutoStart"
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="4dp"
+                    android:text="@string/sw_autostart"
+                    android:textColor="#FFE9EFF7"
+                    android:textSize="13.5sp" />
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:layout_marginTop="12dp"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <EditText
+                        android:id="@+id/etPort"
+                        android:layout_width="0dp"
+                        android:layout_height="42dp"
+                        android:layout_weight="1"
+                        android:gravity="center_vertical"
+                        android:hint="@string/port_hint"
+                        android:imeOptions="actionDone"
+                        android:inputType="number"
+                        android:paddingStart="14dp"
+                        android:paddingEnd="14dp"
+                        android:singleLine="true"
+                        android:textColor="#FFE9EFF7"
+                        android:textColorHint="#FF6B7688"
+                        android:textSize="13.5sp" />
+
+                    <TextView
+                        android:id="@+id/btnApplyPort"
+                        android:layout_width="wrap_content"
+                        android:layout_height="42dp"
+                        android:layout_marginStart="8dp"
+                        android:gravity="center"
+                        android:paddingStart="16dp"
+                        android:paddingEnd="16dp"
+                        android:text="@string/btn_apply_port"
+                        android:textColor="#FFE9EFF7"
+                        android:textSize="12.5sp" />
+                </LinearLayout>
+            </LinearLayout>
+
+            <!-- ======================= 日志 ======================= -->
+            <LinearLayout
+                android:id="@+id/cardLog"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="14dp"
+                android:orientation="vertical"
+                android:padding="18dp">
+
+                <LinearLayout
+                    android:layout_width="match_parent"
+                    android:layout_height="wrap_content"
+                    android:gravity="center_vertical"
+                    android:orientation="horizontal">
+
+                    <TextView
+                        android:id="@+id/secLog"
+                        android:layout_width="0dp"
+                        android:layout_height="wrap_content"
+                        android:layout_weight="1"
+                        android:text="@string/sec_log"
+                        android:textColor="#FFE9EFF7"
+                        android:textSize="15sp"
+                        android:textStyle="bold" />
+
+                    <TextView
+                        android:id="@+id/btnCopyLog"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:paddingStart="10dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="10dp"
+                        android:paddingBottom="4dp"
+                        android:text="@string/btn_copy_log"
+                        android:textColor="#FF9AA6B8"
+                        android:textSize="11.5sp" />
+
+                    <TextView
+                        android:id="@+id/btnClearLog"
+                        android:layout_width="wrap_content"
+                        android:layout_height="wrap_content"
+                        android:layout_marginStart="6dp"
+                        android:paddingStart="10dp"
+                        android:paddingTop="4dp"
+                        android:paddingEnd="10dp"
+                        android:paddingBottom="4dp"
+                        android:text="@string/btn_clear_log"
+                        android:textColor="#FF9AA6B8"
+                        android:textSize="11.5sp" />
+                </LinearLayout>
 
                 <ScrollView
+                    android:id="@+id/logScroll"
                     android:layout_width="match_parent"
-                    android:layout_height="180dp"
+                    android:layout_height="190dp"
                     android:layout_marginTop="10dp"
+                    android:overScrollMode="never"
                     android:scrollbars="vertical">
 
                     <TextView
@@ -273,10 +581,22 @@
                         android:layout_width="match_parent"
                         android:layout_height="wrap_content"
                         android:fontFamily="monospace"
-                        android:textColor="@color/text_secondary"
-                        android:textSize="11sp" />
+                        android:padding="10dp"
+                        android:textColor="#FF9AA6B8"
+                        android:textIsSelectable="true"
+                        android:textSize="10.5sp" />
                 </ScrollView>
             </LinearLayout>
-        </com.google.android.material.card.MaterialCardView>
-    </LinearLayout>
-</ScrollView>
+
+            <TextView
+                android:id="@+id/tvFooter"
+                android:layout_width="match_parent"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="18dp"
+                android:gravity="center"
+                android:text="@string/footer_hint"
+                android:textColor="#FF7A8698"
+                android:textSize="11sp" />
+        </LinearLayout>
+    </ScrollView>
+</FrameLayout>

@@ -1,4 +1,4 @@
-# NFC Mini Studio v3.0.0
+# NFC Mini Studio v3.1.0
 
 把「NFC Mini 2.0 蓝牙读卡器」的完整能力搬到电脑上，并**额外打通两条通用通道**：
 
@@ -22,8 +22,8 @@
 
 | 文件 | 大小 | 说明 |
 | --- | --- | --- |
-| [`NFC_Mini_Studio_Setup_3.0.0.exe`](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest/download/NFC_Mini_Studio_Setup_3.0.0.exe) | 118 MB | Windows 一键安装包，含完整运行环境，装完即用 |
-| [`NFCMiniReader.apk`](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest/download/NFCMiniReader.apk) | 4.1 MB | Android 手机读卡器，Android 5.0+，无需 root |
+| [`NFC_Mini_Studio_Setup_3.1.0.exe`](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest/download/NFC_Mini_Studio_Setup_3.1.0.exe) | 118 MB | Windows 一键安装包，含完整运行环境，装完即用 |
+| [`NFCMiniReader.apk`](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest/download/NFCMiniReader.apk) | 4.2 MB | Android 手机读卡器 1.1.0，液态玻璃界面、本机读卡、换背景 |
 
 > 安装包**没有做代码签名**，Windows SmartScreen 可能提示「已保护你的电脑」。
 > 点「更多信息」→「仍要运行」即可，或者用下面的源码方式自己构建。
@@ -165,7 +165,7 @@ NFC Mini 2.0 是一款国产 13.56 MHz / 125 kHz 双频 NFC 读写器，官方�
 ### 方式一：安装程序（推荐）
 
 从 [Releases](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest) 下载
-`NFC_Mini_Studio_Setup_3.0.0.exe`（118 MB）双击即可。
+`NFC_Mini_Studio_Setup_3.1.0.exe`（118 MB）双击即可。
 
 如果你是从源码构建的，产物在：
 
@@ -312,44 +312,80 @@ APDU 对应关系：
 
 ## 手机当读卡器怎么用
 
+> 详细说明（含权限、签名、协议、故障排查）：[`docs/Android读卡器.md`](docs/Android读卡器.md)
+
 ### 1. 装 APK
 
-手机浏览器/微信打开 `android/NFCMiniReader.apk` 安装（约 4.1 MB）。
+从 [Releases](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest) 下载 `NFCMiniReader.apk`
+（约 4.2 MB），传到手机安装。也可以：
 
-安装时如果提示「未知来源」，在系统设置里允许即可。APK 用的是 debug 签名，方便直接侧载，**不上架任何应用商店**。
+```bash
+adb install -r NFCMiniReader.apk
+```
+
+首次安装需要允许「安装未知应用」。**APK 1.1.0 起使用正式 release 签名**
+（证书公开在 `android/keystore/`，谁都能重建出签名一致的包），
+但从 1.0.0（debug 签名）升级会提示签名冲突，**先卸载旧版**即可。
 
 系统要求：Android 5.0+（API 21），必须有 NFC 硬件。
 
-### 2. 打开 App
+### 2. 权限怎么给
 
-打开后它会**自动**：
+NFC 权限是**安装时自动授予**的，不会弹窗。你只需要：
 
-- 请求 NFC 权限 → 开启读卡模式
-- 启动 TCP 服务（8765 端口）
-- 开始广播 UDP 信标（8766 端口）
+1. **手动打开系统 NFC 开关**（App 里有「去开启 NFC」直达按钮）
+2. Android 13+ 会弹一次**通知权限**（前台服务需要），允许即可
+
+其余网络/震动权限都是安装时授予。App 不联网、不收集任何数据。
+
+> 为什么必须保持界面在前台？Android 的 NFC 轮询（reader mode）绑在 Activity 上，
+> 界面一暂停读卡就停。前台服务能保住 TCP 连接，但保不住 NFC 轮询——这是系统限制。
+
+### 3. 打开 App
+
+打开后默认会**自动**：
+
+- 检测 NFC 状态（没开会给直达按钮）
+- 启动前台读卡服务（TCP 8765 端口，通知栏常驻）
+- 开始广播 UDP 信标（8766 端口，让电脑能自动搜到）
 - 屏幕常亮
 
-你会看到运行状态、本机 IP、连接数、电量，以及一个实时日志。
+界面上能看到：三个状态胶囊（NFC / 网络 / 卡片）、服务开关、`IP:端口`、连接数、本机读卡工具、背景设置、日志。
 
-### 3. 电脑上连接
+### 4. 手机端也能单独读卡
 
-设备页 → 选「手机读卡器」→ 点「搜索手机读卡器」→ 列表里出现 `Pixel-8 · 192.168.1.5:8765` 这样的条目 → 点连接。
+不连电脑也能用：
 
-没搜到就点「手动输入地址」，填手机上显示的 IP + `:8765`。
+- **读取卡片信息** —— UID、SAK、ATQA、卡类型、扇区数/块数/容量
+- **读扇区** —— 输入扇区号和密钥，直接看 4 个块的十六进制
+- **复制 UID**
 
-### 4. 手机放卡
+### 5. 电脑上连接
+
+设备页 → 选「手机读卡器」→ 点「搜索手机读卡器」→ 列表里出现 `Pixel-8 · 192.168.1.5:8765` 就点它。
+
+没搜到就点「手动输入地址」，填手机上显示的 IP + 端口。
+
+### 6. 手机放卡
 
 把卡贴到手机背面 NFC 天线位置（一般在摄像头附近）。电脑点「寻卡」就能读到。
 
-> 手机 NFC 的感应范围很小（1~3 cm），并且**要求卡静止不动**。读整卡时保持别动，否则会中断。
+> 手机 NFC 感应范围只有 1~3 cm，并且**要求卡静止不动**。读整卡时保持别动，否则会中断。
 
-### 5. 能做什么
+### 7. 能做什么
 
 和 PC/SC 通道完全一致：寻卡、读块、写块、写 UID、写卡号、整卡导出、密钥校验。
 
 不支持设备端破解、读 125 kHz ID 卡、封卡（手机 NFC 芯片只有 13.56 MHz 且不能生成随机数应答）。
 
-### 6. 原理简述
+### 8. 界面能换
+
+- **液态玻璃**：壁纸 + GPU 实时高斯模糊（Android 12+）+ 半透明渐变卡片，可关
+- **7 套内置渐变背景**：午夜蓝 / 极光 / 落日 / 深海 / 森林 / 石墨 / 雾玫
+- **自己的照片当背景**：从相册选（不需要存储权限）
+- **模糊强度 0~40**、**浅色/深色主题**、**端口可改**、**常亮/震动/自动启动**开关
+
+### 9. 原理简述
 
 手机端实现的是**服务端**，协议和原厂读卡器一模一样：
 
@@ -358,7 +394,7 @@ APDU 对应关系：
    ↓ 私有帧 FF|LEN|MSGID|DATA|SUM|FE
 NetTransport.send()  →  TCP socket
    ↓
-手机 ReaderServer 收到字节
+手机 ReaderServer 收到字节（先发一行 NFCMINI/1 握手文本）
    ↓ Protocol.Parser 拆帧
 NfcEngine.dispatch(data)  →  调 Android NFC API 收发
    ↓ 按原 msgid 组回一个完整帧
@@ -412,7 +448,12 @@ python build_android.py --install  # 构建并 adb install
 - Gradle 8.7（`GRADLE_HOME` 或 `C:\Android\gradle\gradle-8.7`）
 - AGP 必须 **8.6.x**：AGP 8.7 要求 Gradle 8.9，而本项目用 Gradle 8.7
 
-脚本会自动把工程镜像到临时 ASCII 路径再构建（Windows + 中文用户名会触发 AGP 的 non-ASCII path 检查），构建完把 APK 拷回 `android/NFCMiniReader.apk`。
+脚本会自动把工程镜像到 `C:\nfcmreader-build`（纯 ASCII 路径）再构建——Windows 用户名含中文时 AGP 会直接报
+`Your project path contains non-ASCII characters`，而本项目路径里有「我的项目」四个字。
+构建完把 APK 拷回 `android/NFCMiniReader.apk`。
+
+签名：release 用 `android/keystore/nfcmini-release.jks`（公开的演示证书，密码在 `android/keystore.properties`）。
+没有这个文件时自动退回 debug 签名。详见 [`docs/Android读卡器.md`](docs/Android读卡器.md) 第 4 节。
 
 ### 离线自检
 
@@ -521,13 +562,19 @@ NFC读卡工具NFCMiniStudio/
 │       ├── js/app.js
 │       ├── css/{style.css, macos.css}
 │       └── assets/ wallpapers/
-├── android/                 Android 手机读卡器工程
-│   ├── NFCMiniReader.apk    预编译 APK（4.1 MB）
+├── android/                 Android 手机读卡器工程（APK 1.1.0）
+│   ├── NFCMiniReader.apk    预编译 APK（4.2 MB）
+│   ├── keystore/            公开的演示签名证书
 │   ├── app/src/main/java/net/nfcreader/minireader/
-│   │   ├── MainActivity.java    界面 + NFC 读卡模式
-│   │   ├── NfcEngine.java       私有命令 → Android NFC API
-│   │   ├── Protocol.java        帧编解码
-│   │   └── ReaderServer.java    TCP 服务 + UDP 信标
+│   │   ├── MainActivity.java      界面 + 液态玻璃 + 换背景 + 本机读卡
+│   │   ├── NfcEngine.java         私有命令 → Android NFC API（核心）
+│   │   ├── ReaderServer.java      TCP 服务 + UDP 信标
+│   │   ├── ReaderCore.java        单例：engine/server/settings
+│   │   ├── ReaderService.java     前台 Service（后台存活）
+│   │   ├── Protocol.java          帧编解码 + 状态码位置表
+│   │   ├── DeviceInfo.java        设备名/SN/IP/电量
+│   │   ├── AppSettings.java       设置持久化
+│   │   └── WallpaperFactory.java  渐变壁纸 + 模糊 + 自定义图
 │   └── app/src/main/res/
 ├── installer/               安装程序
 │   ├── installer.py
@@ -561,6 +608,7 @@ NFC读卡工具NFCMiniStudio/
 - [`docs/原理说明.md`](docs/原理说明.md) — 架构、协议、三条通道实现细节
 - [`docs/使用手册.md`](docs/使用手册.md) — 逐步图文操作
 - [`docs/编译与打包.md`](docs/编译与打包.md) — 从源码到安装包/APK 全流程
+- [`docs/Android读卡器.md`](docs/Android读卡器.md) — 手机读卡器 APK 完整说明（权限/签名/协议/FAQ）
 - [`docs/常见问题.md`](docs/常见问题.md) — FAQ
 - [`NFC_Mini_2.0_协议逆向报告.md`](NFC_Mini_2.0_协议逆向报告.md) — 原始逆向记录
 - [`云端Token获取教程.md`](云端Token获取教程.md) — 可选云端功能配置
