@@ -637,6 +637,14 @@ class Api:
             }
         return self._guard(work)
 
+    def _require_card(self) -> dict:
+        """写/读前的快速寻卡：没卡立即失败，避免无卡时空等几十秒。"""
+        if getattr(self, "_last_card", None) and (self._last_card or {}).get("uid"):
+            return self._last_card
+        card = self.device.find_card()
+        self._last_card = card
+        return card
+
     def write_block(self, block: int, data_hex: str, key_hex: str = "",
                     key_type: int = 0, verify: bool = True) -> dict:
         # 尾块（3/7/…/63）是密钥 + 权限位：写错这张卡就废了。
@@ -651,6 +659,7 @@ class Api:
                              "reason": "尾块是密钥/权限区，按设置跳过写入（防止把卡写废）"})
 
         def work():
+            self._require_card()
             key, _kt, _src = self._resolve_key(key_hex, key_type, block=int(block))
             started = time.time()
             res = self.device.write_block(int(block), hex_to_bytes(data_hex),
