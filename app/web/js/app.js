@@ -963,6 +963,23 @@ const CAP_LABELS = {
 };
 
 /* 启动时自动连手机读卡器：能连就静默连上，没找到不打扰用户 */
+async function autoConnectAll() {
+  try {
+    log('正在自动扫描附近的读卡器…', 'info');
+    const res = await api('auto_connect');
+    if (res && res.connected) {
+      log(res.note || '已自动连接', 'ok');
+      toast(res.note || '已自动连接读卡器', 'ok');
+      await refreshStatus();
+      try { applyCapabilities(await api('capabilities')); } catch (e) { /* ignore */ }
+    } else {
+      log((res && res.note) || '没有找到可用读卡器', 'warn');
+    }
+  } catch (e) {
+    log('自动连接失败：' + e.message, 'warn');
+  }
+}
+
 async function autoConnectPhone() {
   try {
     const res = await api('auto_connect_phone');
@@ -2998,7 +3015,7 @@ async function init() {
   // 启动时自动校验云端 token：失效会弹窗征求同意，同意后打开微信小程序自动续期
   autoCheckCloudToken();
   // 启动时自动发现并连接手机读卡器（有就静默连上，没有只记日志）
-  autoConnectPhone();
+  autoConnectAll();
 }
 
 let __booted = false;

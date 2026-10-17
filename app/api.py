@@ -464,6 +464,60 @@ class Api:
             return info
         return self._guard(work)
 
+    def auto_connect(self) -> dict:
+        """开机自动扫描并连接：原厂读卡器 → 手机读卡器 → 蓝牙，找到第一个能用的就连。"""
+        if self.device.connected:
+            return self._ok({"connected": True, "address": self.device.transport_label,
+                             "note": f"已经连接：{self.device.transport_label}", "mode": self.device.mode})
+
+        tried = []
+        # ① 原厂 PC/SC 读卡器
+        try:
+            from .transport_pcsc import PcscTransport
+            readers = [r for r in (PcscTransport.list_readers() or []) if r]
+            if readers:
+                self.device.connect_pcsc(readers[0])
+                return self._ok({"connected": True, "address": readers[0], "mode": "pcsc",
+                                 "note": f"已自动连接通用读卡器 {readers[0]}"})
+            tried.append("没发现 PC/SC 读卡器")
+        except Exception as exc:                                  # noqa: BLE001
+            tried.append(f"PC/SC：{exc}")
+
+        # ② 手机读卡器（UDP 信标，兜底 127.0.0.1 的 adb reverse）
+        try:
+            from .transport_net import NetTransport
+            found = NetTransport.discover(2.0) or []
+            cands = [d.get("address") for d in found if d.get("address")] or ["127.0.0.1:8765"]
+            for addr in cands[:4]:
+                try:
+                    self.device.connect_net(addr, timeout=3.0)
+                    return self._ok({"connected": True, "address": addr, "mode": "net",
+                                     "note": f"已自动连接手机读卡器 {addr}"})
+                except Exception:                                 # noqa: BLE001
+                    continue
+            tried.append("没发现手机读卡器")
+        except Exception as exc:                                  # noqa: BLE001
+            tried.append(f"手机读卡器：{exc}")
+
+        # ③ 蓝牙读卡器
+        try:
+            devs = self.device.scan(timeout=4.0) or []
+            for d in devs:
+                mac = d.get("mac") or d.get("address")
+                if not mac:
+                    continue
+                try:
+                    self.device.connect(mac)
+                    return self._ok({"connected": True, "address": mac, "mode": "ble",
+                                     "note": f"已自动连接蓝牙读卡器 {d.get('name') or mac}"})
+                except Exception:                                 # noqa: BLE001
+                    continue
+            tried.append("没发现蓝牙读卡器")
+        except Exception as exc:                                  # noqa: BLE001
+            tried.append(f"蓝牙：{exc}")
+
+        return self._ok({"connected": False, "note": "自动扫描没找到设备（" + "；".join(tried) + "）"})
+
     def connect_pcsc(self, reader: str = "") -> dict:
         """连接通用 PC/SC 读卡器（reader 为空时用第一台）。"""
         return self._guard(lambda: self.device.connect_pcsc(str(reader or "")))

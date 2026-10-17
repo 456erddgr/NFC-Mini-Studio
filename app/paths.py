@@ -8,7 +8,7 @@ from pathlib import Path
 
 APP_NAME = "NFCMiniStudio"
 APP_TITLE = "NFC Mini Studio"
-APP_VERSION = "3.3.2"
+APP_VERSION = "3.3.3"
 
 # 仅作参考记录：项目当前位于 E:\我的项目\NFC读卡工具NFCMiniStudio
 # （2026-10-09 从 E:\NFCMiniStudio 整理而来，2026-10-11 改为此中文名）。
