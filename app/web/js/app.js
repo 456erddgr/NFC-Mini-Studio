@@ -390,7 +390,9 @@ function onCrackEvent(p) {
       if (Number(p.sector) < 0) {
         setTimeout(() => { doDump(true).catch(() => {}); }, 400);
       }
-      toast(`破解成功：扇区 ${p.sector} 密钥已获得`, 'ok');      askAfterCrack(p.sector, p.keys || []);
+      toast(`破解成功：扇区 ${p.sector} 密钥已获得`, 'ok');
+      // 破解完不自动弹写录窗口：先让用户把新卡放上去，自己点「写入整卡」再克隆
+      log('破解完成：把新卡放到感应区，再点「写入整卡」开始写录', 'info');
     } else {
       setBadge('#autoCrackBadge', '破解未成功', 'warn');
       setBadge('#crackStateBadge', '未成功', 'warn');
@@ -1377,6 +1379,17 @@ async function doWriteAll(skipConfirm) {
   let done = 0, failed = 0;
   try {
     busy(true, '写入整卡…');
+    // 写之前必须确认「新卡已放好」：没卡就提示放卡，绝不空写
+    try {
+      const now = await api('find_card');
+      if (!now || !now.uid) throw new Error('没有检测到新卡');
+      log(`新卡已就位：UID ${now.uid}（${now.class_label || ''}）`, 'ok');
+    } catch (e) {
+      busy(false);
+      toast('请先把新卡放到感应区，再点「写入整卡」', 'err');
+      log('写入中止：' + e.message, 'warn');
+      return;
+    }
     setLed('busy');
     resetProgress('write');
     const t0 = Date.now();
