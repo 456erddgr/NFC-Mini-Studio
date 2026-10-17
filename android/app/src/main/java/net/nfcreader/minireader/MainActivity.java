@@ -796,6 +796,37 @@ public final class MainActivity extends AppCompatActivity
         });
         col.addView(wp, GlassUi.lpMr(this, ViewGroup.LayoutParams.MATCH_PARENT, 8f));
 
+        LinearLayout wpRow = GlassUi.row(this);
+        TextView pick = GlassUi.button(this, "从相册选背景", GlassUi.STYLE_SOFT, null);
+        pick.setOnClickListener(v -> {
+            Haptics.tap(this);
+            pickWallpaper();
+        });
+        wpRow.addView(pick, GlassUi.lpMr(this, 0, 0f));
+        LinearLayout.LayoutParams plp = (LinearLayout.LayoutParams) pick.getLayoutParams();
+        plp.width = 0;
+        plp.weight = 1f;
+        pick.setLayoutParams(plp);
+
+        TextView reset = GlassUi.button(this, "恢复默认", GlassUi.STYLE_GHOST, null);
+        reset.setOnClickListener(v -> {
+            Haptics.tap(this);
+            WallpaperFactory.clearCustom(this);
+            settings.customWallpaper = "";
+            settings.wallpaperId = WallpaperFactory.DEFAULT_ID;
+            settings.save();
+            d.dismiss();
+            loadWallpaper();
+            recreate();
+        });
+        wpRow.addView(reset, GlassUi.lpMr(this, 0, 0f));
+        LinearLayout.LayoutParams rlp = (LinearLayout.LayoutParams) reset.getLayoutParams();
+        rlp.width = 0;
+        rlp.weight = 1f;
+        rlp.leftMargin = GlassUi.dpi(this, 8f);
+        reset.setLayoutParams(rlp);
+        col.addView(wpRow, GlassUi.lpMr(this, ViewGroup.LayoutParams.MATCH_PARENT, 8f));
+
         TextView about = GlassUi.label(this, "桌面端：NFC Mini Studio 3.x\n"
                 + "本机：v" + BuildConfig.VERSION_NAME + "\n"
                 + "协议：NFC Mini 2.0 私有帧协议（FF LEN MSGID DATA SUM FE）");
@@ -824,6 +855,47 @@ public final class MainActivity extends AppCompatActivity
     }
 
     /** 申请「忽略电池优化」，MIUI 上还建议手动把本应用设为「无限制」。 */
+    private static final int REQ_PICK_WALLPAPER = 0x51;
+
+    /** 从系统相册选一张图作为玻璃背景。 */
+    private void pickWallpaper() {
+        try {
+            Intent it = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            it.addCategory(Intent.CATEGORY_OPENABLE);
+            it.setType("image/*");
+            startActivityForResult(it, REQ_PICK_WALLPAPER);
+        } catch (Throwable t) {
+            try {
+                Intent it = new Intent(Intent.ACTION_GET_CONTENT);
+                it.setType("image/*");
+                startActivityForResult(it, REQ_PICK_WALLPAPER);
+            } catch (Throwable t2) {
+                GlassUi.toast(this, "打不开相册：" + t2.getMessage());
+            }
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_PICK_WALLPAPER) return;
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+            GlassUi.toast(this, "没有选择图片");
+            return;
+        }
+        String name = WallpaperFactory.importCustom(this, data.getData());
+        if (name == null) {
+            GlassUi.toast(this, "这张图读不出来，换一张试试");
+            return;
+        }
+        settings.customWallpaper = name;
+        settings.save();
+        loadWallpaper();
+        Haptics.success(this);
+        GlassUi.toast(this, "背景已换成你选的图");
+        recreate();
+    }
+
     private void requestBatteryWhitelist() {
         try {
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {

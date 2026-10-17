@@ -41,7 +41,7 @@ public class GlassCardView extends FrameLayout {
     private final Matrix shaderMatrix = new Matrix();
     private final int[] loc = new int[2];
 
-    private float radiusDp = 22f;
+    private float radiusDp = 24f;
     private float glassAlpha = 1f;
     private BitmapShader usedShader;
 
@@ -123,7 +123,7 @@ public class GlassCardView extends FrameLayout {
         edgePaint.setStyle(Paint.Style.STROKE);
         edgePaint.setStrokeWidth(1f * d);
         edgePaint.setShader(new LinearGradient(0f, 0f, 0f, Math.max(1f, rect.height() * 0.06f),
-                new int[]{0x8CFFFFFF, 0x00FFFFFF}, new float[]{0f, 1f}, Shader.TileMode.CLAMP));
+                new int[]{0x33FFFFFF, 0x00FFFFFF}, new float[]{0f, 1f}, Shader.TileMode.CLAMP));
         edgePaint.setAlpha((int) (255 * glassAlpha));
         canvas.drawRoundRect(rect, r, r, edgePaint);
     }

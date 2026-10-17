@@ -2,6 +2,7 @@ package net.nfcreader.studio;
 
 import android.content.ClipData;
 import android.content.ClipboardManager;
+import android.content.Intent;
 import android.content.Context;
 import android.graphics.drawable.GradientDrawable;
 import android.nfc.NfcAdapter;
@@ -180,6 +181,46 @@ public final class StudioActivity extends AppCompatActivity
     }
 
     // ------------------------------------------------------------ 外壳
+
+    private static final int REQ_PICK_WALLPAPER = 0x51;
+
+    private void pickWallpaper() {
+        try {
+            Intent it = new Intent(Intent.ACTION_OPEN_DOCUMENT);
+            it.addCategory(Intent.CATEGORY_OPENABLE);
+            it.setType("image/*");
+            startActivityForResult(it, REQ_PICK_WALLPAPER);
+        } catch (Throwable t) {
+            try {
+                Intent it2 = new Intent(Intent.ACTION_GET_CONTENT);
+                it2.setType("image/*");
+                startActivityForResult(it2, REQ_PICK_WALLPAPER);
+            } catch (Throwable t2) {
+                GlassUi.toast(this, "打不开相册：" + t2.getMessage());
+            }
+        }
+    }
+
+    @Override
+    protected void onActivityResult(int requestCode, int resultCode, Intent data) {
+        super.onActivityResult(requestCode, resultCode, data);
+        if (requestCode != REQ_PICK_WALLPAPER) return;
+        if (resultCode != RESULT_OK || data == null || data.getData() == null) {
+            GlassUi.toast(this, "没有选择图片");
+            return;
+        }
+        String name = WallpaperFactory.importCustom(this, data.getData());
+        if (name == null) {
+            GlassUi.toast(this, "这张图读不出来，换一张试试");
+            return;
+        }
+        settings.customWallpaper = name;
+        settings.save();
+        loadWallpaper();
+        Haptics.success(this);
+        GlassUi.toast(this, "背景已换成你选的图");
+        recreate();
+    }
 
     private void buildShell() {
         FrameLayout root = GlassUi.background(this);
@@ -852,6 +893,30 @@ public final class StudioActivity extends AppCompatActivity
             recreate();
         });
         a.addView(wall, GlassUi.lpMr(this, ViewGroup.LayoutParams.MATCH_PARENT, 8f));
+
+        LinearLayout wpRow = GlassUi.row(this);
+        TextView pickWp = GlassUi.button(this, "从相册选背景", GlassUi.STYLE_SOFT, null);
+        pickWp.setOnClickListener(v -> {
+            Haptics.tap(this);
+            pickWallpaper();
+        });
+        LinearLayout.LayoutParams p1 = new LinearLayout.LayoutParams(0, GlassUi.dpi(this, 44f), 1f);
+        wpRow.addView(pickWp, p1);
+
+        TextView resetWp = GlassUi.button(this, "恢复默认", GlassUi.STYLE_GHOST, null);
+        resetWp.setOnClickListener(v -> {
+            Haptics.tap(this);
+            WallpaperFactory.clearCustom(this);
+            settings.customWallpaper = "";
+            settings.wallpaperId = WallpaperFactory.DEFAULT_ID;
+            settings.save();
+            loadWallpaper();
+            recreate();
+        });
+        LinearLayout.LayoutParams p2 = new LinearLayout.LayoutParams(0, GlassUi.dpi(this, 44f), 1f);
+        p2.leftMargin = GlassUi.dpi(this, 8f);
+        wpRow.addView(resetWp, p2);
+        col.addView(wpRow, GlassUi.lpMr(this, ViewGroup.LayoutParams.MATCH_PARENT, 8f));
         c1.addView(a);
         col.addView(c1, GlassUi.lpMr(this, ViewGroup.LayoutParams.MATCH_PARENT, 0f));
 
