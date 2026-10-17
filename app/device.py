@@ -431,6 +431,9 @@ class NfcDevice:
         return self._msgid
 
     def request(self, data: bytes, timeout: float = 5.0, retries: int = 0) -> bytes:
+        # 通用读卡器（PCSC）偶发丢应答：自动多试一次，解决「连上了有时不能用」
+        if self.mode == "pcsc" and retries < 1:
+            retries = 1
         with self._lock:
             if not self.connected:
                 raise NfcError("设备未连接，请先连接读卡器")
