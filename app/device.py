@@ -80,6 +80,9 @@ CRACK_LABELS = {
 # 写块响应里这些状态码说明"帧根本没被解析"，此时回读校验没有意义
 FRAME_REJECT_CODES = (2, 3, 15)
 
+# 写块帧格式尝试顺序：0x08 官方写块 -> 0x18 -> 0x16
+WRITE_STRICT_ORDER = ("D-K16", "D-K16-18", "D-K16-16")
+
 
 class AsyncJobRunner:
     """极简后台任务池：给前端一个 handle，前端轮询取结果。
@@ -777,11 +780,12 @@ class NfcDevice:
     # ---- 写块：候选帧格式自适应 + 回读校验 --------------------------------
     def write_block(self, block: int, data, key: bytes = DEFAULT_KEY,
                     key_type: int = 0, verify: bool = True,
-                    adaptive: bool = True, progress: Optional[Callable[[int, int, str], None]] = None) -> dict:
-        """写单块。
+                    adaptive: bool = True,
+                    progress: Optional[Callable[[int, int, str], None]] = None) -> dict:
+        """写单块：认证 -> 写 -> 回读校验（标准 MIFARE 时序）。
 
-        v1.0.0 只发一种硬编码帧（密钥在前、不认证），一旦固件解析格式不同就必失败。
-        v2.0.0 改为：候选格式逐个试 → 写后立刻回读比对 → 命中即缓存。
+        旧实现拿 7 种帧布局轮着探测，在本机 NFC Mini 2.0 v0.1.4 上会卡住甚至写脏尾块。
+        现在只走一条确定路径，0x08 被固件拒绝才降级 0x18 / 0x16。
         """
         block = int(block)
         if not 0 <= block <= 255:
@@ -789,92 +793,43 @@ class NfcDevice:
         payload_data = _as_block(data)
         key = _as_key(key)
 
-        formats = self._candidate_formats(adaptive)
-        errors: List[str] = []
+        if progress:
+            progress(0, 3, "认证块 %d（%s）…" % (block, "KEY B" if key_type else "KEY A"))
+        self.auth_auto(block, key, key_type)
+
         tried: List[str] = []
-        total = len(formats)
-
-        # ---- 写前无损探测：拿「块里原来的内容」把候选格式各试一次 ----
-        # 只有回读仍是原值，才说明这个布局被固件正确理解，再用它写新数据。
-        # 这样既不会把块写脏，也不需要在新数据上去猜格式。
-        if verify:
-            probe_data = None
-            try:
-                probe_data = bytes(self.read_block_verbose(block, key_type, timeout=8.0))
-            except NfcError as exc:
-                self._log("warn", f"块 {block} 写前读取失败（{exc}），跳过无损探测")
-            if probe_data is not None:
-                chosen = None
-                for probe_fmt in formats:
-                    if probe_fmt.get("pre_auth"):
-                        try:
-                            self.auth_auto(block, key, key_type)
-                        except NfcError as exc:
-                            errors.append(f"{probe_fmt['id']}: 认证未通过（{exc}）")
-                            continue
-                    status, _detail = self._try_send_write(
-                        probe_fmt, block, key, key_type, probe_data)
-                    if status is not None and status in FRAME_REJECT_CODES:
-                        continue
-                    try:
-                        back = bytes(self.read_block_verbose(block, key_type, timeout=8.0))
-                    except NfcError as exc:
-                        errors.append(f"{probe_fmt['id']}: 探测回读失败（{exc}）")
-                        continue
-                    if back == probe_data:
-                        chosen = probe_fmt
-                        self._log("info", f"块 {block} 写块格式探测命中 "
-                                          f"{probe_fmt['id']}（{probe_fmt['desc']}）")
-                        break
-                    errors.append(f"{probe_fmt['id']}: 探测写后回读不一致")
-                    self._restore_block(block, probe_fmt, key, key_type)
-                if chosen is not None:
-                    formats = [chosen]
-                    total = 1
-
-        for idx, fmt in enumerate(formats, start=1):
+        errors: List[str] = []
+        for fmt in WRITE_STRICT_ORDER:
+            spec = next((f for f in WRITE_FORMATS if f["id"] == fmt), None)
+            if spec is None:
+                continue
+            tried.append(fmt)
             if progress:
-                progress(idx - 1, total, f"尝试写块格式 {fmt['id']}（{fmt['desc']}）")
-            tried.append(fmt["id"])
-
-            if fmt.get("pre_auth"):
-                try:
-                    self.auth_auto(block, key, key_type)
-                except NfcError as exc:
-                    errors.append(f"{fmt['id']}: 认证未通过（{exc}）")
-                    continue
-
-            status, detail = self._try_send_write(fmt, block, key, key_type, payload_data)
+                progress(1, 3, "写入块 %d（%s）…" % (block, spec["desc"]))
+            status, detail = self._try_send_write(spec, block, key, key_type, payload_data)
             if status is not None and status in FRAME_REJECT_CODES:
-                errors.append(f"{fmt['id']}: 设备未接受该帧（{detail}）")
+                errors.append("%s: 固件拒绝（%s）" % (fmt, detail))
                 continue
             if not verify:
-                self._write_format = fmt["id"]
-                return {"ok": True, "format": fmt["id"], "format_desc": fmt["desc"],
-                        "verified": None, "status_text": detail, "tried": tried,
-                        "block": block}
-
+                self._write_format = fmt
+                return {"ok": True, "format": fmt, "format_desc": spec["desc"],
+                        "verified": None, "status_text": detail,
+                        "tried": tried, "block": block}
+            if progress:
+                progress(2, 3, "回读校验块 %d …" % block)
             try:
-                back = self.read_block_verbose(block, key_type, timeout=8.0)
+                back = bytes(self.read_block_verbose(block, key_type, timeout=8.0))
             except NfcError as exc:
-                errors.append(f"{fmt['id']}: 写后回读失败（{exc}）")
+                errors.append("%s: 写后回读失败（%s）" % (fmt, exc))
                 continue
-            if bytes(back) == payload_data:
-                if idx > 1:
-                    self._log("warn", f"前 {idx - 1} 种写块帧格式无效，"
-                                      f"已命中 {fmt['id']}（{fmt['desc']}）")
-                self._write_format = fmt["id"]
-                return {"ok": True, "format": fmt["id"], "format_desc": fmt["desc"],
+            if back == payload_data:
+                self._write_format = fmt
+                return {"ok": True, "format": fmt, "format_desc": spec["desc"],
                         "verified": True, "read_back": fmt_hex(back),
                         "status_text": detail, "tried": tried, "block": block}
-            # 写了但内容不对 —— 先把原内容尽力写回，避免把块写脏
-            errors.append(f"{fmt['id']}: 回读不一致（期望 {fmt_hex(payload_data[:4])}… "
-                          f"实读 {fmt_hex(back[:4])}…）")
-            self._restore_block(block, fmt, key, key_type)
-
-        if not adaptive and self._write_format:
-            raise NfcError("写块失败：" + "；".join(errors), 10)
-        raise NfcError(f"写块失败，已依次尝试 {len(tried)} 种帧格式：" + "；".join(errors), 10)
+            errors.append("%s: 回读不一致（期望 %s… 实读 %s…）"
+                          % (fmt, fmt_hex(payload_data[:4]), fmt_hex(back[:4])))
+        raise NfcError("写块失败：" + "；".join(errors or ["没有可用帧格式"]), 10)
 
     def write_block_verbose(self, block: int, data, key: bytes = DEFAULT_KEY,
                             key_type: int = 0, verify: bool = True) -> dict:
