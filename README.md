@@ -8,12 +8,42 @@
 | 🟢 通用 PC/SC 读卡器 | ACR122U、ACR1252、PN532 串口转 CCID 等任意 PC/SC 标准读卡器 | 寻卡 / 读块 / 写块 / 密钥校验 / 写 UID / 写卡号 / 整卡导出 |
 | 🔴 手机读卡器 | 任意带 NFC 的 Android 手机（本项目自带 APK） | 手机当读卡器，走 Wi-Fi TCP，能力同 PC/SC 通道 |
 
+[![Release](https://img.shields.io/github/v/release/456erddgr/NFC-Mini-Studio?style=flat-square&label=release)](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest)
+[![License](https://img.shields.io/github/license/456erddgr/NFC-Mini-Studio?style=flat-square)](LICENSE)
+[![Platform](https://img.shields.io/badge/platform-Windows%2010%20%7C%2011-0078D4?style=flat-square)](#安装)
+[![Python](https://img.shields.io/badge/python-3.10%2B-3776AB?style=flat-square&logo=python&logoColor=white)](#重新构建)
+[![Android](https://img.shields.io/badge/android-5.0%2B-3DDC84?style=flat-square&logo=android&logoColor=white)](#手机当读卡器怎么用)
+
 > 纯本地运行，不需要联网、不需要登录。云端密钥查询是**可选**功能，不开启也完全可用。
+
+## 直接下载
+
+去 **[Releases](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest)** 下载，不用装 Python、不用编译：
+
+| 文件 | 大小 | 说明 |
+| --- | --- | --- |
+| [`NFC_Mini_Studio_Setup_3.0.0.exe`](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest/download/NFC_Mini_Studio_Setup_3.0.0.exe) | 118 MB | Windows 一键安装包，含完整运行环境，装完即用 |
+| [`NFCMiniReader.apk`](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest/download/NFCMiniReader.apk) | 4.1 MB | Android 手机读卡器，Android 5.0+，无需 root |
+
+> 安装包**没有做代码签名**，Windows SmartScreen 可能提示「已保护你的电脑」。
+> 点「更多信息」→「仍要运行」即可，或者用下面的源码方式自己构建。
+
+## 截图
+
+<p align="center">
+  <img src="slides/assets/ui_main.png" width="720" alt="主界面">
+</p>
+
+## Star 趋势
+
+[![Star History Chart](https://api.star-history.com/svg?repos=456erddgr/NFC-Mini-Studio&type=Date)](https://star-history.com/#456erddgr/NFC-Mini-Studio&Date)
 
 ---
 
 ## 目录
 
+- [直接下载](#直接下载)
+- [截图](#截图)
 - [这是什么](#这是什么)
 - [三种连接方式](#三种连接方式)
 - [功能清单](#功能清单)
@@ -134,11 +164,16 @@ NFC Mini 2.0 是一款国产 13.56 MHz / 125 kHz 双频 NFC 读写器，官方�
 
 ### 方式一：安装程序（推荐）
 
+从 [Releases](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest) 下载
+`NFC_Mini_Studio_Setup_3.0.0.exe`（118 MB）双击即可。
+
+如果你是从源码构建的，产物在：
+
 ```
 installer\dist\NFC Mini Studio 安装程序.exe
 ```
 
-双击即可。特性：
+特性：
 
 - 无边框液态玻璃界面
 - 自定义安装位置（默认 `%LOCALAPPDATA%\Programs\NFC Mini Studio`）
@@ -148,6 +183,8 @@ installer\dist\NFC Mini Studio 安装程序.exe
 - 静默安装：`"NFC Mini Studio 安装程序.exe" --silent [--target D:\路径] [--launch]`
 
 ### 方式二：绿色版
+
+自己构建 `python build_all.py app` 后，把整个文件夹拷走即可：
 
 ```
 dist\NFC Mini Studio\NFC Mini Studio.exe
