@@ -94,29 +94,49 @@ def make_shortcut(lnk: Path, exe: Path, workdir: Path) -> None:
     powershell(ps)
 
 
+# 卸载脚本刻意不写任何绝对路径：全部用 %~dp0 / %USERPROFILE% / %APPDATA% 取，
+# 因此不受文件编码影响。旧版把「含中文用户名的绝对路径」按 GBK 写进脚本，又在开头
+# 执行 chcp 65001，cmd 于是按 UTF-8 去解析那串 GBK 字节 → rmdir 的路径永远是坏的，
+# 卸载后残留 200 多 MB 文件；而且旧版 reg delete 少了 HKCU\ 前缀，注册表项也从来没删掉过。
+# 另外 timeout 在无控制台（被程序调用）时会直接报错退出，改用 ping 等待。
+# 最后一行用 (goto) 先让 cmd 释放本 .bat 的文件句柄，才能删掉自己和空目录；
+# "%~dp0." 是给结尾的反斜杠加个点，避免 "…\" 把引号转义掉。
 UNINSTALL_BAT = r"""@echo off
-chcp 65001 >nul
-title 卸载 NFC Mini Studio
-echo 正在关闭 NFC Mini Studio ...
-taskkill /f /im "NFC Mini Studio.exe" >nul 2>&1
-timeout /t 1 /nobreak >nul
+title 卸载 {app}
+echo 正在关闭 {app} ...
+taskkill /f /im "{app}.exe" >nul 2>&1
+ping -n 2 127.0.0.1 >nul
+
 echo 正在删除快捷方式 ...
 del /f /q "%USERPROFILE%\Desktop\{app}.lnk" >nul 2>&1
+del /f /q "%USERPROFILE%\Desktop\{app}.url" >nul 2>&1
 del /f /q "%APPDATA%\Microsoft\Windows\Start Menu\Programs\{app}.lnk" >nul 2>&1
+
 echo 正在清除注册表信息 ...
-reg delete "{reg}" /f >nul 2>&1
+reg delete "HKCU\{reg}" /f >nul 2>&1
+
 echo 正在删除程序文件 ...
-cd /d "%TEMP%"
-start /min "" cmd /c "ping 127.0.0.1 -n 3 >nul & rmdir /s /q "{target}" & exit"
-echo 卸载完成。
+for /d %%D in ("%~dp0*") do rd /s /q "%%~D" >nul 2>&1
+del /f /q "%~dp0*.exe" >nul 2>&1
+del /f /q "%~dp0*.dll" >nul 2>&1
+del /f /q "%~dp0*.pyd" >nul 2>&1
+del /f /q "%~dp0*.zip" >nul 2>&1
+del /f /q "%~dp0*.txt" >nul 2>&1
+del /f /q "%~dp0*.manifest" >nul 2>&1
+
+echo.
+echo 卸载完成，感谢使用！
+echo 设置与壁纸保留在 %APPDATA%\NFCMiniStudio，如需彻底清除请手动删除该文件夹。
+ping -n 4 127.0.0.1 >nul
+(goto) 2>nul & del /f /q "%~f0" & rd /s /q "%~dp0."
 """
 
 
 def write_uninstall_bat(target: Path) -> None:
     bat = target / UNINST_NAME
-    bat.write_text(
-        UNINSTALL_BAT.format(app=APP_NAME, reg=REG_PATH, target=str(target)),
-        encoding="gbk", errors="replace")
+    # gbk：脚本中的中文只出现在 echo 里；真正的命令走环境变量和 %~dp0，与编码无关。
+    bat.write_text(UNINSTALL_BAT.format(app=APP_NAME, reg=REG_PATH),
+                   encoding="gbk", errors="replace")
 
 
 def write_registry(target: Path, exe: Path, size_kb: int) -> None:
