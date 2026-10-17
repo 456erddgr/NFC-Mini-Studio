@@ -38,13 +38,13 @@ public final class GlassUi {
 
     public static final int BG = 0xFF05070B;
     public static final int TEXT = 0xFFEAF0F7;
-    public static final int DIM = 0xFF93A1B5;
-    public static final int FAINT = 0xFF5D6B7D;
-    public static final int ACCENT = 0xFF4F9CF9;
-    public static final int ACCENT2 = 0xFF22D3A6;
-    public static final int WARN = 0xFFFFB020;
-    public static final int ERR = 0xFFFF5C6C;
-    public static final int OK = 0xFF34D399;
+    public static final int DIM = 0xFF8E8E93;
+    public static final int FAINT = 0xFF636366;
+    public static final int ACCENT = 0xFF0A84FF;
+    public static final int ACCENT2 = 0xFF0A84FF;
+    public static final int WARN = 0xFFFF9F0A;
+    public static final int ERR = 0xFFFF453A;
+    public static final int OK = 0xFF30D158;
 
     public static final int STYLE_PRIMARY = 0;
     public static final int STYLE_GHOST = 1;
@@ -332,30 +332,28 @@ public final class GlassUi {
     }
 
     public static void applyButtonBg(Context ctx, TextView b, int style) {
-        int r = dpi(ctx, 15f);
+        int r = dpi(ctx, 14f);
         GradientDrawable g = new GradientDrawable();
         g.setCornerRadius(r);
         switch (style) {
             case STYLE_PRIMARY:
-                g.setColors(new int[]{ACCENT, ACCENT2});
-                g.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
-                b.setTextColor(0xFF04121C);
+                g.setColor(ACCENT);
+                b.setTextColor(0xFFFFFFFF);
                 break;
             case STYLE_DANGER:
-                g.setColors(new int[]{ERR, 0xFFFF8A5C});
-                g.setOrientation(GradientDrawable.Orientation.LEFT_RIGHT);
-                b.setTextColor(0xFF20060A);
+                g.setColor(ERR);
+                b.setTextColor(0xFFFFFFFF);
                 break;
             case STYLE_SOFT:
-                g.setColor(0x2E6EA8FF);
-                g.setStroke(Math.max(1, dpi(ctx, 0.8f)), 0x554F9CF9);
-                b.setTextColor(0xFFBFD8FF);
+                g.setColor(0xFF2C2C2E);
+                g.setStroke(Math.max(1, dpi(ctx, 0.5f)), 0x14FFFFFF);
+                b.setTextColor(0xFFFFFFFF);
                 break;
             case STYLE_GHOST:
             default:
-                g.setColor(0x14FFFFFF);
-                g.setStroke(Math.max(1, dpi(ctx, 0.8f)), 0x30FFFFFF);
-                b.setTextColor(TEXT);
+                g.setColor(0xFF242426);
+                g.setStroke(Math.max(1, dpi(ctx, 0.5f)), 0x1FFFFFFF);
+                b.setTextColor(0xFFFFFFFF);
                 break;
         }
         b.setBackground(g);

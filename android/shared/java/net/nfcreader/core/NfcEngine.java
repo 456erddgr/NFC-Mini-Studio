@@ -400,10 +400,11 @@ public final class NfcEngine {
     private byte[] handleInfo() {
         byte[] r = new byte[16];
         r[0] = (byte) Protocol.CMD_INFO;
-        // 桌面端把 d[1..3] 显示成「主.次.修订」，这里回报真实的 App 版本 2.0.0
-        r[1] = 0x02;
-        r[2] = 0x00;
-        r[3] = 0x00;
+        // 桌面端把 d[1..3] 显示成「主.次.修订」，这里回报真实的 App 版本
+        int[] ver = DeviceInfo.appVersionParts();
+        r[1] = (byte) (ver[0] & 0xFF);
+        r[2] = (byte) (ver[1] & 0xFF);
+        r[3] = (byte) (ver[2] & 0xFF);
         byte[] sn = Protocol.unhex(DeviceInfo.snCacheForProtocol());
         byte[] sn12 = Protocol.fixed(sn, 12);
         System.arraycopy(sn12, 0, r, 4, 12);

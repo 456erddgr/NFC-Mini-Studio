@@ -217,4 +217,33 @@ public final class DeviceInfo {
         }
         return "2.0.0";
     }
+
+    /** 版本号三元组（主、次、修订），用于协议里回报真实版本。 */
+    public static int[] appVersionParts() {
+        int[] out = {2, 1, 1};
+        String[] names = {
+                "net.nfcreader.minireader.BuildConfig",
+                "net.nfcreader.studio.BuildConfig",
+        };
+        for (String n : names) {
+            try {
+                Class<?> c = Class.forName(n);
+                String vn = (String) c.getField("VERSION_NAME").get(null);
+                if (vn != null) {
+                    String[] ps = vn.split("\\.");
+                    for (int i = 0; i < 3 && i < ps.length; i++) {
+                        try {
+                            out[i] = Integer.parseInt(ps[i].trim());
+                        } catch (Throwable ignore) {
+                            // 保持默认值
+                        }
+                    }
+                    return out;
+                }
+            } catch (Throwable ignore) {
+                // 换下一个
+            }
+        }
+        return out;
+    }
 }
