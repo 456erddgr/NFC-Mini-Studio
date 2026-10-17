@@ -790,6 +790,45 @@ class NfcDevice:
         errors: List[str] = []
         tried: List[str] = []
         total = len(formats)
+
+        # ---- 写前无损探测：拿「块里原来的内容」把候选格式各试一次 ----
+        # 只有回读仍是原值，才说明这个布局被固件正确理解，再用它写新数据。
+        # 这样既不会把块写脏，也不需要在新数据上去猜格式。
+        if verify:
+            probe_data = None
+            try:
+                probe_data = bytes(self.read_block_verbose(block, key_type, timeout=8.0))
+            except NfcError as exc:
+                self._log("warn", f"块 {block} 写前读取失败（{exc}），跳过无损探测")
+            if probe_data is not None:
+                chosen = None
+                for probe_fmt in formats:
+                    if probe_fmt.get("pre_auth"):
+                        try:
+                            self.auth_auto(block, key, key_type)
+                        except NfcError as exc:
+                            errors.append(f"{probe_fmt['id']}: 认证未通过（{exc}）")
+                            continue
+                    status, _detail = self._try_send_write(
+                        probe_fmt, block, key, key_type, probe_data)
+                    if status is not None and status in FRAME_REJECT_CODES:
+                        continue
+                    try:
+                        back = bytes(self.read_block_verbose(block, key_type, timeout=8.0))
+                    except NfcError as exc:
+                        errors.append(f"{probe_fmt['id']}: 探测回读失败（{exc}）")
+                        continue
+                    if back == probe_data:
+                        chosen = probe_fmt
+                        self._log("info", f"块 {block} 写块格式探测命中 "
+                                          f"{probe_fmt['id']}（{probe_fmt['desc']}）")
+                        break
+                    errors.append(f"{probe_fmt['id']}: 探测写后回读不一致")
+                    self._restore_block(block, probe_fmt, key, key_type)
+                if chosen is not None:
+                    formats = [chosen]
+                    total = 1
+
         for idx, fmt in enumerate(formats, start=1):
             if progress:
                 progress(idx - 1, total, f"尝试写块格式 {fmt['id']}（{fmt['desc']}）")
@@ -1578,6 +1617,21 @@ class NfcDevice:
         返回卡号 / 卡类型 / 卡代码 / 设施码，并把结果并入 ``_last_card`` 缓存，
         供后续 0x0C 写卡号、0x26 回读等流程复用。
         """
+        try:
+            caps = self.capabilities() or {}
+        except Exception:                          # noqa: BLE001
+            caps = {}
+        if not caps.get("read_id_card", True):
+            # 手机读卡器没有 125kHz 天线 / 0x38 固件能力：退化成 0x11 寻卡，
+            # 至少把 13.56MHz 卡的 UID / SAK / 卡型 识别出来，不要让整条链路报错。
+            info = dict(self.find_card())
+            info["auto_identify_partial"] = True
+            info["auto_identify_note"] = ("手机读卡器仅支持 13.56 MHz 卡（0x11 寻卡）；"
+                                          "125kHz ID 卡自动识别需要原厂读卡器硬件")
+            info["cmd"] = "0x11"
+            self._log("info", f"识别卡片（手机通道·0x11）：{info.get('uid')} · "
+                              f"{info.get('class_label')}")
+            return info
         self._require_firmware("设备端自动识别（0x38，仅低频卡）")
         payload = build_auto_identify_payload()
         d = self.request(payload, timeout=10.0)
