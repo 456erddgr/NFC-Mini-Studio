@@ -970,8 +970,14 @@ async function autoConnectAll() {
     if (res && res.connected) {
       log(res.note || '已自动连接', 'ok');
       toast(res.note || '已自动连接读卡器', 'ok');
-      await refreshStatus();
-      try { applyCapabilities(await api('capabilities')); } catch (e) { /* ignore */ }
+      // 之前这里调用了不存在的 refreshStatus()，异常被吞掉 → 明明连上了界面还显示「未连接」
+      const st = (await api('status')) || {};
+      state.connected = true;
+      applyConnectedUI(st.data || st, res.address, res.note);
+      try {
+        const caps = (await api('capabilities')) || {};
+        applyCapabilities(caps.data || caps);
+      } catch (e) { /* ignore */ }
     } else {
       log((res && res.note) || '没有找到可用读卡器', 'warn');
     }
