@@ -146,11 +146,20 @@ class BleTransport(Transport):
         return devices
 
     async def _open(self, mac: str, timeout: float) -> None:
-        from bleak import BleakClient
+        from bleak import BleakClient, BleakScanner
 
         await self._close()
+        # Windows 上直接按 MAC 连经常报 "device not found"（缓存过期/广播没抓到），
+        # 这里失败一次后现场扫一遍拿到真实 device 对象再连，成功率明显更高。
         client = BleakClient(mac, timeout=timeout)
-        await client.connect()
+        try:
+            await client.connect()
+        except Exception as first:
+            dev = await BleakScanner.find_device_by_address(mac, timeout=max(6.0, timeout))
+            if dev is None:
+                raise first
+            client = BleakClient(dev, timeout=timeout)
+            await client.connect()
         await client.start_notify(NOTIFY_UUID, self._on_notify)
         self._client = client
         self.mac = mac

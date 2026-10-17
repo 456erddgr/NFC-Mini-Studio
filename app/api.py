@@ -499,19 +499,52 @@ class Api:
         except Exception as exc:                                  # noqa: BLE001
             tried.append(f"手机读卡器：{exc}")
 
-        # ③ 蓝牙读卡器
+        # ③ 蓝牙读卡器：先直连上次用过的 MAC（秒连），再扫描
+        last_mac = str((self.settings.data or {}).get("last_mac") or "").strip()
+        if last_mac:
+            try:
+                self.device.connect(last_mac, timeout=8.0)
+                self._on_device_log("ok", f"已直连上次的蓝牙读卡器 {last_mac}")
+                return self._ok({"connected": True, "address": last_mac, "mode": "ble",
+                                 "note": f"已直连上次的蓝牙读卡器 {last_mac}"})
+            except Exception as exc:                              # noqa: BLE001
+                tried.append(f"上次的蓝牙设备 {last_mac} 连不上（{exc}）")
+
         try:
-            devs = self.device.scan(timeout=4.0) or []
+            # 4 秒常常扫不到：读卡器在「已连过别人」或休眠时会短暂停广播，扫 8 秒更稳
+            devs = self.device.scan(timeout=8.0) or []
+            # 只尝试「像是读卡器」的设备，避免连到蓝牙耳机/键盘一类的设备空等
+            # 只连「确实像读卡器」的设备：原厂 OUI D0:0C:5E 或名字里带 nfc/mini/reader。
+            # 绝不能退化成「随便连一个蓝牙设备」——那会连到耳机/手环并空等超时。
+            cands = []
             for d in devs:
+                mac = str(d.get("address") or d.get("mac") or "").upper()
+                name = str(d.get("name") or "").lower()
+                if mac.startswith("D0:0C:5E") or any(
+                        h in name for h in ("nfc", "rfid", "mini", "reader", "icread")):
+                    cands.append(d)
+            if not cands:
+                tried.append("蓝牙没有出现读卡器广播（请断开手机/小程序对该读卡器的连接，"
+                             "或按一下读卡器按键唤醒它）")
+            self._on_device_log(
+                "info", f"蓝牙扫描到 {len(devs)} 个设备，其中疑似读卡器 {len(cands)} 个")
+            for d in cands[:3]:
                 mac = d.get("mac") or d.get("address")
                 if not mac:
                     continue
                 try:
-                    self.device.connect(mac)
-                    return self._ok({"connected": True, "address": mac, "mode": "ble",
-                                     "note": f"已自动连接蓝牙读卡器 {d.get('name') or mac}"})
-                except Exception:                                 # noqa: BLE001
+                    self.device.connect(mac, timeout=12.0)
+                except Exception as exc:                          # noqa: BLE001
+                    tried.append(f"蓝牙 {mac} 连接失败（{exc}）")
                     continue
+                try:
+                    self.settings.data["last_mac"] = mac
+                    self.settings.save()
+                except Exception:                                 # noqa: BLE001
+                    pass
+                self._on_device_log("ok", f"已自动连接蓝牙读卡器 {d.get('name') or mac}")
+                return self._ok({"connected": True, "address": mac, "mode": "ble",
+                                 "note": f"已自动连接蓝牙读卡器 {d.get('name') or mac}"})
             tried.append("没发现蓝牙读卡器")
         except Exception as exc:                                  # noqa: BLE001
             tried.append(f"蓝牙：{exc}")
