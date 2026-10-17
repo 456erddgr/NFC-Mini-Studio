@@ -948,6 +948,8 @@ class NfcDevice:
         blocks: Dict[int, Optional[str]] = {}
         errors: Dict[int, str] = {}
         sector_notes: Dict[int, str] = {}
+        # 本卡每个扇区真实解出来的密钥（桌面端界面直接展示，用户要的就是这个）
+        keys_out: Dict[int, Any] = {}
         done = 0
         started = time.time()
         cur_sector = -1
@@ -968,10 +970,16 @@ class NfcDevice:
                     block_kt = self.auth_auto(sector * 4, target, key_type)
                     auth_ok = True
                     if sk:
+                        keys_out[sector] = {"hex": target.hex().upper(),
+                                            "type": 1 if block_kt else 0,
+                                            "source": "cracked"}
                         sector_notes[sector] = (f"扇区 {sector} 用破解密钥 "
                                                 f"{target.hex().upper()} 认证通过"
                                                 f"（{'KEY B' if block_kt else 'KEY A'}）")
                     else:
+                        keys_out[sector] = {"hex": target.hex().upper(),
+                                            "type": 1 if block_kt else 0,
+                                            "source": "input"}
                         sector_notes[sector] = (f"扇区 {sector} 认证通过"
                                                 f"（{'KEY B' if block_kt else 'KEY A'}）")
                 except NfcError as exc:
@@ -1005,6 +1013,7 @@ class NfcDevice:
             "blocks": blocks,
             "errors": errors,
             "sector_notes": sector_notes,
+            "keys": keys_out,
             "total": total,
             "ok_count": ok_count,
             "elapsed": round(time.time() - started, 2),

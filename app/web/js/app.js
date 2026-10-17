@@ -1306,6 +1306,16 @@ async function doDump() {
     Object.keys(blocks).forEach(k => {
       if (blocks[k]) state.dump[+k] = normalizeHex(blocks[k]);
     });
+    // 把「每个扇区解出来的密钥」写进扇区标题：KEY A=xxxx / KEY B=xxxx
+    try {
+      const km = {};
+      Object.keys(res.keys || {}).forEach(s => {
+        const k = res.keys[s];
+        if (k && k.hex) km[s] = (k.type === 1 ? 'B=' : 'A=') + k.hex;
+      });
+      state.crackedKeys = Object.assign({}, state.crackedKeys || {}, km);
+      state.lastSectorKeys = res.keys || {};
+    } catch (e) { /* 密钥展示失败不影响读卡 */ }
     renderSectors();
     const got = Object.keys(state.dump).length;
     const failed = Object.keys(res.errors || {}).length;
@@ -1685,7 +1695,7 @@ function renderWriteModes(modes) {
   sel.innerHTML = writeModes.map(m =>
     `<option value="${escapeHtml(m.id)}">${escapeHtml(m.label)}（${escapeHtml(m.cmd)}）</option>`
   ).join('');
-  const i = writeModes.findIndex(m => m.id === 'normal');
+  const i = writeModes.findIndex(m => m.id === 'fast');
   sel.value = writeModes[i >= 0 ? i : 0].id;
 }
 
@@ -2229,6 +2239,10 @@ function bindUI() {
   if ($('#btnReadNo')) $('#btnReadNo').onclick = doReadCurrentNo;
   if ($('#btnWriteNo')) $('#btnWriteNo').onclick = () => doWriteCardNo(true);
   if ($('#btnWriteCard')) $('#btnWriteCard').onclick = () => doWriteCardNo(false);
+if ($('#btnWriteCardFast')) $('#btnWriteCardFast').onclick = () => {
+  if ($('#wMode')) $('#wMode').value = 'fast';
+  doWriteCardNo(false);
+};
   if ($('#btnReadIdCard')) $('#btnReadIdCard').onclick = doReadIdCard;
   if ($('#btnCrackAgain')) $('#btnCrackAgain').onclick = doCrackAgain;
 
