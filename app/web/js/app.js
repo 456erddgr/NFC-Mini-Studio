@@ -331,10 +331,11 @@ async function askAfterCrack(sector, keys) {
     return;
   }
   const goWrite = await confirmBox('写入新卡',
-    '把刚读到的整卡数据克隆到一张新卡吗？\n（请先把新卡放到感应区，再点「写入整卡」）');
+    '把刚读到的整卡数据克隆到新卡吗？\n\n现在把新卡放到感应区，点「确定」就开始写入。\n' +
+    '（默认跳过尾块密钥区，不会把卡写废；要整卡克隆请先在设置里关掉 write_skip_trailer）');
   if (goWrite) {
-    toast('请放入新卡，然后点「写入整卡」完成克隆', 'info');
-    log('破解完成 → 建议执行整卡克隆（写入整卡）', 'info');
+    log('破解完成 → 直接开始整卡克隆写入', 'info');
+    await doWriteAll(true);
   }
 }
 function onCrackEvent(p) {
@@ -385,6 +386,10 @@ function onCrackEvent(p) {
       setText('#crackBigPct', '100%');
       setText('#crackBigMeta', `扇区 ${p.sector} 破解成功`);
       showCrackKeys(p.keys || [], p.sector);
+      // 破解完把之前读不出来的块补读回来：后面克隆写入要用完整数据
+      if (Number(p.sector) < 0) {
+        setTimeout(() => { doDump(true).catch(() => {}); }, 400);
+      }
       toast(`破解成功：扇区 ${p.sector} 密钥已获得`, 'ok');      askAfterCrack(p.sector, p.keys || []);
     } else {
       setBadge('#autoCrackBadge', '破解未成功', 'warn');
@@ -1335,13 +1340,22 @@ async function doDump() {
   }
 }
 
-async function doWriteAll() {
+async function doWriteAll(skipConfirm) {
+  if (!Object.keys(state.dump || {}).length) {
+    // 只破解过、没读过整卡时，state.dump 是空的：自动先读一遍当前卡
+    toast('还没有整卡数据，正在读取当前卡…', 'info');
+    await doDump(true);
+    if (!Object.keys(state.dump || {}).length) {
+      toast('读取失败，没有可写入的数据', 'err');
+      return;
+    }
+  }
   const blocks = Object.keys(state.dump)
     .map(Number)
     .filter(b => (state.dump[b] || '').replace(/\s/g, '').length === 32)
     .sort((a, b) => a - b);
   if (!blocks.length) { toast('没有可写入的数据，请先读取整卡', 'err'); return; }
-  const ok = await confirmBox('写入整卡',
+  const ok = skipConfirm ? true : await confirmBox('写入整卡',
     `即将向目标卡写入 ${blocks.length} 个数据块（含扇区尾块）。\n` +
     '写入会覆盖目标卡原有数据，且每块都会回读校验。\n\n确定继续吗？');
   if (!ok) return;
@@ -2252,6 +2266,27 @@ function bindUI() {
   if ($('#btnReadNo')) $('#btnReadNo').onclick = doReadCurrentNo;
   if ($('#btnWriteNo')) $('#btnWriteNo').onclick = () => doWriteCardNo(true);
   if ($('#btnWriteCard')) $('#btnWriteCard').onclick = () => doWriteCardNo(false);
+if ($('#btnRescue')) $('#btnRescue').onclick = async () => {
+  const ok = await confirmBox('卡片救援',
+    '对当前卡逐个扇区尝试密钥库，把还能认证上的扇区尾块恢复成出厂值\n' +
+    '（KEY A/B = FFFFFFFFFFFF，权限位 FF0780）。\n\n' +
+    '尾块密钥已被改掉的扇区救不回来。继续吗？');
+  if (!ok) return;
+  busy(true, '卡片救援中…');
+  try {
+    const res = await api('rescue_card');
+    log('救援结果：' + (res.detail || ''), res.fixed && res.fixed.length ? 'ok' : 'warn');
+    if (res.fixed && res.fixed.length) {
+      toast(`已修复 ${res.fixed.length} 个扇区，重新读卡试试`, 'ok');
+    } else {
+      toast('一个扇区都认证不上，这张卡救不回来', 'err');
+    }
+  } catch (e) {
+    toast('救援失败：' + e.message, 'err');
+  } finally {
+    busy(false);
+  }
+};
 if ($('#btnWriteCardFast')) $('#btnWriteCardFast').onclick = () => {
   if ($('#wMode')) $('#wMode').value = 'fast';
   doWriteCardNo(false);

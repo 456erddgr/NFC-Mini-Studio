@@ -1786,6 +1786,58 @@ class Api:
             }
         return self._guard(work)
     # ------------------------------------------------------------ 密码库（公共 / 用户 / 读卡历史）
+    def rescue_card(self) -> dict:
+        """卡片救援：尾块被写坏的卡，用密钥库逐个扇区认证，认上的把尾块恢复成出厂值。
+
+        恢复后的尾块 = KEY A FFFFFFFFFFFF + 权限位 FF0780 + KEY B FFFFFFFFFFFF。
+        认证不上的扇区说明密钥已经被改掉，MIFARE 层面无法再救（硬件永久锁）。
+        """
+        def work():
+            keys = []
+            try:
+                for lib in ("public", "user", "history"):
+                    for row in self.keybox.list(lib):
+                        k = (row or {}).get("key") if isinstance(row, dict) else str(row)
+                        if k:
+                            k = str(k).replace(" ", "").upper()
+                            if len(k) == 12 and k not in keys:
+                                keys.append(k)
+            except Exception:                                    # noqa: BLE001
+                pass
+            for extra in ("FFFFFFFFFFFF", str(self.settings.data.get("default_key") or "").upper()):
+                if len(extra) == 12 and extra not in keys:
+                    keys.insert(0, extra)
+            trailer = hex_to_bytes("FFFFFFFFFFFFFF0780FFFFFFFFFFFF")
+            fixed, locked = [], []
+            for sector in range(16):
+                blk = sector * 4 + 3
+                done = False
+                for k in keys:
+                    for kt in (0, 1):
+                        try:
+                            if not self.device.auth(blk, hex_to_bytes(k), int(kt)):
+                                continue
+                        except Exception:                        # noqa: BLE001
+                            continue
+                        try:
+                            self.device.write_block(blk, trailer, hex_to_bytes(k), int(kt),
+                                                    verify=False)
+                            fixed.append({"sector": sector, "key": k, "key_type": int(kt)})
+                            done = True
+                            break
+                        except Exception:                        # noqa: BLE001
+                            continue
+                    if done:
+                        break
+                if not done:
+                    locked.append(sector)
+            detail = (f"试了 {len(keys)} 把密钥：修复 {len(fixed)} 个扇区尾块，"
+                      f"{len(locked)} 个扇区认证不上")
+            self._on_device_log("ok" if fixed else "warn", "卡片救援完成：" + detail)
+            return {"ok": True, "fixed": fixed, "locked": locked,
+                    "tried": len(keys), "detail": detail}
+        return self._guard(work)
+
     def keybox_list(self, lib: str = "public") -> dict:
         return self._ok({"lib": lib, "items": self.keybox.list(lib),
                          "stats": self.keybox.stats()})
