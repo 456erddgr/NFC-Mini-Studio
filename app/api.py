@@ -585,6 +585,17 @@ class Api:
 
     def write_block(self, block: int, data_hex: str, key_hex: str = "",
                     key_type: int = 0, verify: bool = True) -> dict:
+        # 尾块（3/7/…/63）是密钥 + 权限位：写错这张卡就废了。
+        # 默认只写数据块；需要克隆整卡时把设置里的 write_skip_trailer 关掉即可。
+        try:
+            blk_i = int(block)
+        except (TypeError, ValueError):
+            blk_i = -1
+        if (blk_i >= 0 and blk_i % 4 == 3
+                and self.settings.data.get("write_skip_trailer", True)):
+            return self._ok({"block": blk_i, "skipped": True,
+                             "reason": "尾块是密钥/权限区，按设置跳过写入（防止把卡写废）"})
+
         def work():
             key, _kt, _src = self._resolve_key(key_hex, key_type, block=int(block))
             started = time.time()

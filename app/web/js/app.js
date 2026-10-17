@@ -1347,6 +1347,19 @@ async function doWriteAll() {
   if (!ok) return;
   const key = ($('#keyInput') ? $('#keyInput').value : '').replace(/\s/g, '');
   const kt = +($('#keyType') ? $('#keyType').value : 0);
+  // 换卡后必须先重新寻卡：否则会拿上一张卡的密钥/上下文去写新卡
+  try {
+    const cur = await api('find_card');
+    const uid = (cur && cur.uid) || '';
+    if (state.lastUid && uid && uid !== state.lastUid) {
+      log(`检测到换卡：UID 从 ${state.lastUid} 变成 ${uid}`, 'warn');
+      toast(`换卡了：现在写的是 UID ${uid}`, 'warn');
+    }
+    state.lastUid = uid;
+    if (cur && cur.class_label) log(`目标卡：${cur.class_label} · UID ${uid}`, 'info');
+  } catch (e) {
+    log('写前寻卡失败：' + e.message, 'warn');
+  }
   let done = 0, failed = 0;
   try {
     busy(true, '写入整卡…');

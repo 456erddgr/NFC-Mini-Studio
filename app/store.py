@@ -53,7 +53,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "non_full_key_read": False,     # 非完整密钥读卡（采集 + 密钥缓存批量验证）
     "encrypted_zero_sectors": True, # 自动加密 0 扇区（写卡时同时写密钥块）
     "write_card_tips": True,        # 写卡前提示滚动码风险
-    "power_display": True,             # 设备页显示读卡器电量（v3.2.0 起默认开）
+    "power_display": True,
+        "write_skip_trailer": True,             # 设备页显示读卡器电量（v3.2.0 起默认开）
     "auto_connect_phone": True,     # 启动时自动发现并连接手机读卡器         # 设备页显示读卡器电量
     "sak88": False,                 # SAK88 开关（0x88 类卡特殊处理）
 }
