@@ -1,4 +1,4 @@
-package net.nfcreader.minireader;
+package net.nfcreader.core;
 
 import android.nfc.Tag;
 import android.nfc.tech.MifareClassic;
@@ -275,6 +275,13 @@ public final class NfcEngine {
         byte[] useKey = (key != null && key.length == 6) ? key : null;
 
         byte[] cachedSame = authedKeys.get(keyIndex(sector, k));
+        // 没带密钥的读块请求（桌面端认证一次之后连续读该扇区）：只要这个扇区认证过就
+        // 直接认为还有效。MifareClassic 的连接状态是按扇区保持的，不会因为读块失效。
+        if (useKey == null &&
+                (cachedSame != null || authedKeys.get(keyIndex(sector, 1 - k)) != null)) {
+            markOk();
+            return true;
+        }
         if (useKey != null && cachedSame != null && Arrays.equals(cachedSame, useKey)) {
             markOk();
             return true;
@@ -348,6 +355,10 @@ public final class NfcEngine {
                         return handleWriteUid(req);
                     case Protocol.CMD_CHECK_CARD_NO:
                         return handleCheckCardNo();
+                    case Protocol.CMD_AUTO_IDENTIFY:
+                        // 0x38 单字节 = 自动识别卡片（与 staticnest2 同码，靠 DATA 长度区分）
+                        if (req.length <= 1) return handleFindCard();
+                        return fail(cmd, Protocol.E_RANGE);
                     case Protocol.CMD_RESET:
                         closeClassic();
                         closeUltralight();
@@ -366,6 +377,16 @@ public final class NfcEngine {
         }
     }
 
+    /** 供 TCP 层在 dispatch 抛异常时合成一条形状正确的失败应答。 */
+    public byte[] failReply(byte[] req) {
+        int cmd = (req != null && req.length > 0) ? (req[0] & 0xFF) : 0;
+        try {
+            return fail(cmd, Protocol.E_NO_CARD);
+        } catch (Throwable t) {
+            return Protocol.of(cmd, Protocol.E_NO_CARD);
+        }
+    }
+
     private byte[] fail(int cmd, int code) {
         int pos = Protocol.statusPos(cmd);
         byte[] r = new byte[Math.max(pos + 1, 2)];
@@ -379,7 +400,8 @@ public final class NfcEngine {
     private byte[] handleInfo() {
         byte[] r = new byte[16];
         r[0] = (byte) Protocol.CMD_INFO;
-        r[1] = 0x01;   // 版本 1.0.0
+        // 桌面端把 d[1..3] 显示成「主.次.修订」，这里回报真实的 App 版本 2.0.0
+        r[1] = 0x02;
         r[2] = 0x00;
         r[3] = 0x00;
         byte[] sn = Protocol.unhex(DeviceInfo.snCacheForProtocol());
@@ -389,7 +411,8 @@ public final class NfcEngine {
     }
 
     private byte[] handleState() {
-        int bat = DeviceInfo.batteryCache();
+        // 每次现读：只在启动时缓存一次会让桌面端一直显示「—」
+        int bat = DeviceInfo.refreshBattery();
         if (bat < 0 || bat > 100) bat = 0;
         return Protocol.of(Protocol.CMD_STATE, bat);
     }
@@ -471,62 +494,44 @@ public final class NfcEngine {
         return r;
     }
 
+    /**
+     * 写块：只接受协议里明确的三种布局，**绝不再按偏移"猜"**。
+     *
+     * 旧实现按长度依次试 D-K16 / K16-D / keyed / data-only 四种切法，
+     * 只要某一种切法恰好认证成功就把**错位的数据**写进卡里 ——
+     * 实测正是「写卡提示成功、卡片却刷不了」的根因（默认密钥卡尤其容易中）。
+     *
+     *   0x16 极速档：  DATA = cmd, 块号, 数据16
+     *   0x18 普通档：  DATA = cmd, 块号, 0x00, 数据16
+     *   0x08 带密钥类型：DATA = cmd, 块号, 密钥类型, 数据16 [, 密钥6]
+     */
     private byte[] handleWriteBlock(int cmd, byte[] req) {
-        if (req.length < 3) return fail(cmd, Protocol.E_RANGE);
+        if (req == null || req.length < 2) return fail(cmd, Protocol.E_RANGE);
         int block = req[1] & 0xFF;
-        List<byte[]> datas = new ArrayList<>();
-        List<byte[]> keys = new ArrayList<>();
+        byte[] data;
+        byte[] key = null;
+        int keyType = 0;
 
         if (cmd == Protocol.CMD_WRITE_BLOCK_FAST) {
-            // [cmd, blk, data16]
-            if (req.length >= 18) {
-                datas.add(Arrays.copyOfRange(req, 2, 18));
-                keys.add(null);
-            }
+            if (req.length != 18) return fail(cmd, Protocol.E_RANGE);
+            data = Arrays.copyOfRange(req, 2, 18);
         } else if (cmd == Protocol.CMD_WRITE_BLOCK_NORMAL) {
-            // [cmd, blk, 00, data16]
-            if (req.length >= 19) {
-                datas.add(Arrays.copyOfRange(req, 3, 19));
-                keys.add(null);
-            }
-            if (req.length >= 18) {
-                datas.add(Arrays.copyOfRange(req, 2, 18));
-                keys.add(null);
-            }
+            if (req.length != 19) return fail(cmd, Protocol.E_RANGE);
+            data = Arrays.copyOfRange(req, 3, 19);
         } else {
-            // 0x08 有四种布局，按桌面端 WRITE_FORMATS 的顺序依次尝试
-            if (req.length == 24) {
-                // D-K16: [cmd, blk, data16, key6]
-                datas.add(Arrays.copyOfRange(req, 2, 18));
-                keys.add(Arrays.copyOfRange(req, 18, 24));
-                // K16-D: [cmd, blk, key6, data16]
-                datas.add(Arrays.copyOfRange(req, 8, 24));
-                keys.add(Arrays.copyOfRange(req, 2, 8));
-            } else if (req.length > 24) {
-                datas.add(Arrays.copyOfRange(req, 2, 18));
-                keys.add(Arrays.copyOfRange(req, req.length - 6, req.length));
-            } else if (req.length >= 19) {
-                // keyed: [cmd, blk, keyType, data16]
-                datas.add(Arrays.copyOfRange(req, 3, 19));
-                keys.add(null);
-                datas.add(Arrays.copyOfRange(req, 2, 18));
-                keys.add(null);
-            } else if (req.length >= 18) {
-                // data only: [cmd, blk, data16]
-                datas.add(Arrays.copyOfRange(req, 2, 18));
-                keys.add(null);
+            if (req.length == 19) {
+                keyType = req[2] & 1;
+                data = Arrays.copyOfRange(req, 3, 19);
+            } else if (req.length == 25) {
+                keyType = req[2] & 1;
+                data = Arrays.copyOfRange(req, 3, 19);
+                key = Arrays.copyOfRange(req, 19, 25);
+            } else {
+                return fail(cmd, Protocol.E_RANGE);
             }
         }
-        if (datas.isEmpty()) return fail(cmd, Protocol.E_RANGE);
-
-        boolean wrote = false;
-        for (int i = 0; i < datas.size(); i++) {
-            if (writeBlockData(block, datas.get(i), keys.get(i))) {
-                wrote = true;
-                break;
-            }
-        }
-        return writeResult(cmd, block, wrote ? 0 : Protocol.E_WRITE);
+        boolean ok = writeBlockData(block, data, key, keyType);
+        return writeResult(cmd, block, ok ? 0 : Protocol.E_WRITE);
     }
 
     private byte[] handleScanCard() {
@@ -672,6 +677,28 @@ public final class NfcEngine {
             }
         }
         return false;
+    }
+
+    /** 写一块，可指定 KEY A / KEY B。 */
+    public boolean writeBlockData(int block, byte[] data, byte[] key, int keyType) {
+        if (block < 0) return false;
+        byte[] d16 = Protocol.fixed(data, 16);
+        MifareClassic m = classic();
+        if (m != null) {
+            if (!ensureAuthed(Protocol.sectorOfBlock(block), keyType & 1, key)) {
+                log("写块 " + block + " 失败：密钥认证未通过");
+                return false;
+            }
+            try {
+                m.writeBlock(block, d16);
+                markOk();
+                return true;
+            } catch (Throwable e) {
+                log("写块 " + block + " 失败：" + e.getMessage());
+                return false;
+            }
+        }
+        return writeBlockData(block, data, key);
     }
 
     /** 显式认证某扇区（本机工具用）。 */

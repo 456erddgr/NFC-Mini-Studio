@@ -1,4 +1,4 @@
-# NFC Mini Studio v3.1.0
+# NFC Mini Studio v3.2.1
 
 把「NFC Mini 2.0 蓝牙读卡器」的完整能力搬到电脑上，并**额外打通两条通用通道**：
 
@@ -22,8 +22,9 @@
 
 | 文件 | 大小 | 说明 |
 | --- | --- | --- |
-| [`NFC_Mini_Studio_Setup_3.1.0.exe`](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest/download/NFC_Mini_Studio_Setup_3.1.0.exe) | 118 MB | Windows 一键安装包，含完整运行环境，装完即用 |
-| [`NFCMiniReader.apk`](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest/download/NFCMiniReader.apk) | 4.2 MB | Android 手机读卡器 1.1.0，液态玻璃界面、本机读卡、换背景 |
+| `NFC_Mini_Studio_Setup_3.2.1.exe` | 118 MB | Windows 一键安装包，含完整运行环境，装完即用（源码构建后生成） |
+| [`NFCMiniReader.apk`](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest/download/NFCMiniReader.apk) | 4.2 MB | Android 手机读卡器 2.1.0：液态玻璃、本机读整卡、官方云端密钥库破解、写卡安全、状态栏进度 |
+| [`NFCMiniStudio.apk`](https://github.com/456erddgr/NFC-Mini-Studio/releases/latest/download/NFCMiniStudio.apk) | 4.2 MB | Android 完整工具箱 1.1.0：读卡 / 写卡 / 破解 / 卡夹 / 设置，手机端全功能 |
 
 > 安装包**没有做代码签名**，Windows SmartScreen 可能提示「已保护你的电脑」。
 > 点「更多信息」→「仍要运行」即可，或者用下面的源码方式自己构建。

@@ -2,59 +2,51 @@ plugins {
     id 'com.android.application'
 }
 
-// 正式签名证书：android/keystore.properties + android/keystore/nfcmini-release.jks
-// 说明：这是一个「公开的演示签名证书」，密码就写在仓库里，任何人克隆后都能重新构建出
-// 与 GitHub Releases 上完全一致的签名包（方便增量覆盖安装）。如果你想以自己名义发布，
-// 请用 keytool 生成你自己的证书并替换这两个文件。
-def keystorePropsFile = rootProject.file("keystore.properties")
-def keystoreProps = new Properties()
-if (keystorePropsFile.exists()) {
-    keystorePropsFile.withInputStream { keystoreProps.load(it) }
-}
-def hasReleaseSigning = keystorePropsFile.exists() && keystoreProps['storeFile'] != null
-
 android {
     namespace 'net.nfcreader.minireader'
     compileSdk 34
 
     defaultConfig {
-        applicationId "net.nfcreader.minireader"
+        applicationId 'net.nfcreader.minireader'
         minSdk 21
         targetSdk 34
-        versionCode 2
-        versionName "1.1.0"
-        // 中文界面
+        versionCode 4
+        versionName "2.1.0"
         resConfigs "zh", "en"
     }
 
     signingConfigs {
         release {
-            if (hasReleaseSigning) {
-                storeFile rootProject.file(keystoreProps['storeFile'])
-                storePassword keystoreProps['storePassword']
-                keyAlias keystoreProps['keyAlias']
-                keyPassword keystoreProps['keyPassword']
+            def propsFile = rootProject.file('keystore.properties')
+            if (propsFile.exists()) {
+                def props = new Properties()
+                propsFile.withInputStream { props.load(it) }
+                storeFile rootProject.file(props['storeFile'])
+                storePassword props['storePassword']
+                keyAlias props['keyAlias']
+                keyPassword props['keyPassword']
             }
         }
     }
 
     buildTypes {
         release {
-            // 有正式证书就用正式证书，没有则退回 debug 签名（保证总能装）
-            signingConfig hasReleaseSigning ? signingConfigs.release : signingConfigs.debug
+            def hasRelease = rootProject.file('keystore.properties').exists()
+            signingConfig hasRelease ? signingConfigs.release : signingConfigs.debug
             minifyEnabled false
             shrinkResources false
-            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
-        }
-        debug {
-            applicationIdSuffix ".debug"
-            versionNameSuffix "-debug"
         }
     }
 
     compileOptions {
         sourceCompatibility JavaVersion.VERSION_17
         targetCompatibility JavaVersion.VERSION_17
+    }
+
+    sourceSets {
+        main {
+            java.srcDirs += rootProject.file('shared/java')
+        }
     }
 
     buildFeatures {
@@ -67,9 +59,7 @@ android {
     }
 
     packagingOptions {
-        resources {
-            excludes += ['META-INF/*.kotlin_module']
-        }
+        resources.excludes += ['META-INF/*']
     }
 }
 
@@ -77,5 +67,4 @@ dependencies {
     implementation 'androidx.appcompat:appcompat:1.6.1'
     implementation 'androidx.core:core:1.13.1'
     implementation 'com.google.android.material:material:1.11.0'
-    implementation 'androidx.constraintlayout:constraintlayout:2.1.4'
 }

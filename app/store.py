@@ -53,7 +53,8 @@ DEFAULT_SETTINGS: Dict[str, Any] = {
     "non_full_key_read": False,     # 非完整密钥读卡（采集 + 密钥缓存批量验证）
     "encrypted_zero_sectors": True, # 自动加密 0 扇区（写卡时同时写密钥块）
     "write_card_tips": True,        # 写卡前提示滚动码风险
-    "power_display": False,         # 设备页显示读卡器电量
+    "power_display": True,             # 设备页显示读卡器电量（v3.2.0 起默认开）
+    "auto_connect_phone": True,     # 启动时自动发现并连接手机读卡器         # 设备页显示读卡器电量
     "sak88": False,                 # SAK88 开关（0x88 类卡特殊处理）
 }
 
@@ -198,6 +199,12 @@ class Settings(JsonStore):
         if self._data.get("glass") in (None, 70, 90):
             self._data["glass"] = DEFAULT_SETTINGS["glass"]
         self._data["_ui_rev"] = UI_REV
+        # v3.2.0：电量显示默认打开。老配置里 power_display 一直是 False（当年默认值），
+        # 用户看到的就是「设备电量永远不显示」，所以这里做一次性迁移，之后用户手动关掉
+        # 会写 _pw_rev 标记，程序不再改动他的选择。
+        if not self._data.get("_pw_rev"):
+            self._data["power_display"] = True
+            self._data["_pw_rev"] = 1
         self.save()
 
     def _migrate_cloud(self) -> None:

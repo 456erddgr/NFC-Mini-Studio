@@ -413,6 +413,51 @@ class Api:
             return {"ok": True, "hint": f"已打开 {folder}", "apk_path": apk}
         return self._guard(work)
 
+    def auto_connect_phone(self, timeout: float = 2.5) -> dict:
+        """启动时自动连手机读卡器：先听 UDP 信标，再试 127.0.0.1:8765。
+
+        用户不该为了连手机去敲 adb 命令，所以这里做成「能连就静默连上」：
+        * 手机和电脑在同一个 Wi-Fi → 手机每秒广播的 UDP 8766 信标直接给出地址；
+        * USB 调试 + adb reverse tcp:8765 → 127.0.0.1:8765 兜底；
+        * 都没有就返回 ok=False，前端只记一行日志，不弹窗打扰。
+        """
+        def work():
+            if self.device.connected:
+                return {"ok": True, "address": getattr(self.device, "address", ""),
+                        "device": None, "note": "已经连着设备，跳过自动连接"}
+            try:
+                from .transport_net import NetTransport
+            except Exception:                          # noqa: BLE001
+                NetTransport = None
+            targets = []
+            if NetTransport is not None:
+                try:
+                    for item in NetTransport.discover(max(1.0, float(timeout))):
+                        addr = str(item.get("address") or "").strip()
+                        if addr and addr not in targets:
+                            targets.append(addr)
+                except Exception:                      # noqa: BLE001
+                    pass
+            if "127.0.0.1:8765" not in targets:
+                targets.append("127.0.0.1:8765")
+            last = ""
+            for addr in targets:
+                try:
+                    info = self.device.connect_net(addr, timeout=3.0)
+                    self._on_device_log("ok", f"已自动连接手机读卡器 {addr}")
+                    return {"ok": True, "address": addr, "device": info,
+                            "note": f"已自动连接手机读卡器 {addr}"}
+                except Exception as exc:               # noqa: BLE001
+                    last = f"{addr}（{exc}）"
+                    continue
+            note = ("没有发现手机读卡器：请确认手机 App 已打开、"
+                    "和电脑连同一个 Wi-Fi；或插 USB 后在电脑执行 "
+                    "adb reverse tcp:8765 tcp:8765")
+            if last:
+                note += f"。最后错误：{last}"
+            return {"ok": False, "address": "", "device": None, "note": note}
+        return self._guard(work)
+
     def connect(self, mac: str) -> dict:
         def work():
             info = self.device.connect(mac)
@@ -586,6 +631,16 @@ class Api:
                 "ok", f"整卡读取完成：{res['ok_count']}/{res['total']} 块，"
                       f"失败 {len(res['errors'])} 块，耗时 {res['elapsed']}s"
                       f"（密钥 {res['key_used']} · 来源 {src}）")
+            # 读完卡自动破解（v3.2.0）：有读不出来的块说明还有扇区没解，
+            # 立刻在后台按当前破解模式级联解开，用户不用再手点一次「破解」。
+            try:
+                if (self.settings.data.get("auto_crack", True)
+                        and int(res.get("ok_count") or 0) > 0
+                        and (res.get("errors") or [])):
+                    self._on_device_log("info", "整卡读取有失败块，自动开始破解（读完卡即破解）…")
+                    self._maybe_auto_crack(self._last_card or {})
+            except Exception as exc:                   # noqa: BLE001
+                self._on_device_log("warn", f"自动破解未能启动：{exc}")
             return res
         return self._guard(work)
 
@@ -869,30 +924,44 @@ class Api:
                     attempts.append({"method": "miss", "label": f"扇区 {sector}",
                                      "ok": False, "detail": "本轮候选密钥均未通过认证"})
 
-        # ---- 第 1 轮：本地候选（秒级覆盖绝大多数空白卡 / 默认密钥卡）----
-        run_pass(local)
-
-        # ---- 第 2 轮：仍有扇区未解，才查官方云端密钥库（几百把候选，慢但覆盖面广）----
+        # ---- 破解轮次顺序跟随破解模式：选「云端」就先走官方 keygen ----
+        # 旧实现无论哪种模式都先跑本地字典，用户选了云端却看不到云端动作，
+        # 这就是「明明选的是云端破解、实际却是本地字典」的来源。
         cloud_note = ""
-        if unsolved and not stopped() and time.time() < deadline:
-            emit(int(len(found) / total_sectors * 100), "本地候选未覆盖全部扇区，查询官方云端密钥库…")
+
+        def cloud_round() -> str:
+            nonlocal candidates_total
+            if stopped() or time.time() > deadline:
+                return "已取消 / 已超时，未查询云端"
+            emit(int(len(found) / total_sectors * 100), "查询官方云端密钥库（keygen）…")
             try:
                 kg = cloud_keygen_lookup(uid, timeout=max(8.0, float(timeout)))
-                cloud = self._dedup_candidates(
-                    [("云端密钥库", k) for k in (kg.get("keys") or [])],
-                    exclude={k for k, _ in known})
-                if cloud:
-                    candidates_total += len(cloud)
-                    cloud_note = f"云端密钥库返回 {len(cloud)} 把候选密钥"
-                    self._on_device_log(
-                        "ok", cloud_note + f"，继续验证剩余 {len(unsolved)} 个扇区")
-                    run_pass(cloud)
-                else:
-                    cloud_note = "云端密钥库没有新增候选密钥"
-                    self._on_device_log("warn", cloud_note)
             except Exception as exc:                   # noqa: BLE001
-                cloud_note = f"云端密钥库不可用（{exc}）"
-                self._on_device_log("warn", cloud_note + "，仅用本地候选密钥验证")
+                note = f"云端密钥库不可用（{exc}）"
+                self._on_device_log("warn", note)
+                return note
+            cloud = self._dedup_candidates(
+                [("云端密钥库", k) for k in (kg.get("keys") or [])],
+                exclude={k for k, _ in known})
+            if not cloud:
+                note = "云端密钥库没有返回候选密钥（该 UID 未收录）"
+                self._on_device_log("warn", note)
+                return note
+            candidates_total += len(cloud)
+            note = f"云端密钥库返回 {len(cloud)} 把候选密钥"
+            self._on_device_log("ok", note + f"，逐个验证剩余 {len(unsolved)} 个扇区")
+            run_pass(cloud)
+            return note
+
+        if mode == MODE_CLOUD:
+            cloud_note = cloud_round()
+            if unsolved and not stopped() and time.time() < deadline:
+                self._on_device_log("info", "云端候选未覆盖全部扇区，继续用本地候选密钥验证")
+                run_pass(local)
+        else:
+            run_pass(local)
+            if unsolved and not stopped() and time.time() < deadline:
+                cloud_note = cloud_round()
 
         if unsolved and (stopped() or time.time() > deadline):
             self._on_device_log(

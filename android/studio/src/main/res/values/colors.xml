@@ -1,0 +1,14 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- 基础色（布局里大部分颜色由代码按主题动态生成，这里保留备用与图标用色） -->
+    <color name="bg">#FF0B1020</color>
+    <color name="card">#FF161B22</color>
+    <color name="stroke">#FF252C36</color>
+    <color name="text_primary">#FFE9EFF7</color>
+    <color name="text_secondary">#FF9AA6B8</color>
+    <color name="accent">#FF6EA8FF</color>
+
+    <!-- 启动图标 -->
+    <color name="launcher_bg">#FF12203A</color>
+    <color name="launcher_bg2">#FF0B1020</color>
+</resources>

@@ -1,5 +1,7 @@
 package net.nfcreader.minireader;
 
+import net.nfcreader.core.*;
+
 import android.app.Notification;
 import android.app.NotificationChannel;
 import android.app.NotificationManager;
@@ -10,6 +12,7 @@ import android.content.Intent;
 import android.content.pm.ServiceInfo;
 import android.os.Build;
 import android.os.IBinder;
+import android.os.PowerManager;
 
 import androidx.core.app.NotificationCompat;
 
@@ -29,6 +32,61 @@ public final class ReaderService extends Service implements ReaderCore.Listener 
 
     private ReaderCore core;
     private String hint = "正在启动…";
+    private PowerManager.WakeLock wakeLock;
+    private static final int PROGRESS_ID = 0x4E44;
+
+    /**
+     * 状态栏进度：读整卡 / 破解时调用，done/total 变化就刷新一次进度条。
+     * 这样用户把手机放在卡上等结果时，切到桌面也能看到还剩多少。
+     */
+    public static void progress(Context ctx, String title, int done, int total) {
+        if (ctx == null) return;
+        try {
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            NotificationCompat.Builder b = new NotificationCompat.Builder(ctx, CHANNEL_ID)
+                    .setSmallIcon(R.drawable.ic_stat_nfc)
+                    .setContentTitle(title)
+                    .setContentText(Math.max(0, done) + " / " + Math.max(done, total))
+                    .setProgress(Math.max(1, total), Math.max(0, done), false)
+                    .setOngoing(true)
+                    .setOnlyAlertOnce(true)
+                    .setPriority(NotificationCompat.PRIORITY_LOW);
+            nm.notify(PROGRESS_ID, b.build());
+        } catch (Throwable ignore) {
+        }
+    }
+
+    /** 结束进度条。 */
+    public static void clearProgress(Context ctx) {
+        if (ctx == null) return;
+        try {
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(NOTIFICATION_SERVICE);
+            if (nm != null) nm.cancel(PROGRESS_ID);
+        } catch (Throwable ignore) {
+        }
+    }
+
+    private void holdScreenOn() {
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) return;
+            PowerManager pm = (PowerManager) getSystemService(POWER_SERVICE);
+            if (pm == null) return;
+            wakeLock = pm.newWakeLock(
+                    PowerManager.SCREEN_DIM_WAKE_LOCK | PowerManager.ACQUIRE_CAUSES_WAKEUP, "nfcm:server");
+            wakeLock.setReferenceCounted(false);
+            wakeLock.acquire();
+        } catch (Throwable ignore) {
+        }
+    }
+
+    private void releaseScreenOn() {
+        try {
+            if (wakeLock != null && wakeLock.isHeld()) wakeLock.release();
+        } catch (Throwable ignore) {
+        }
+        wakeLock = null;
+    }
 
     /** 启动服务（Activity 调用）。 */
     public static void start(Context ctx) {
@@ -66,6 +124,7 @@ public final class ReaderService extends Service implements ReaderCore.Listener 
         core.addListener(this);
         createChannel();
         startForegroundCompat(buildNotification());
+        holdScreenOn();
     }
 
     @Override
@@ -97,6 +156,8 @@ public final class ReaderService extends Service implements ReaderCore.Listener 
             }
         } catch (Throwable ignore) {
         }
+        releaseScreenOn();
+        clearProgress(this);
         super.onDestroy();
     }
 

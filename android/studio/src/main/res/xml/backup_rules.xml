@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<full-backup-content>
+    <!-- 只备份设置，不备份壁纸与缓存，避免安装包/备份体积膨胀 -->
+    <include
+        domain="sharedpref"
+        path="nfcmini_settings.xml" />
+    <exclude
+        domain="file"
+        path="wallpapers" />
+</full-backup-content>

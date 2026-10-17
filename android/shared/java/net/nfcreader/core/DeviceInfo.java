@@ -1,4 +1,4 @@
-package net.nfcreader.minireader;
+package net.nfcreader.core;
 
 import android.content.Context;
 import android.content.Intent;
@@ -199,12 +199,22 @@ public final class DeviceInfo {
         return "Android " + Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")";
     }
 
-    /** App 版本名（BuildConfig）。 */
+    /** App 版本名。共享核心被两个模块共用，各自的 BuildConfig 包名不同，因此用反射读取。 */
     public static String appVersion() {
-        try {
-            return BuildConfig.VERSION_NAME + " (" + BuildConfig.VERSION_CODE + ")";
-        } catch (Throwable t) {
-            return "1.1.0";
+        String[] names = {
+                "net.nfcreader.minireader.BuildConfig",
+                "net.nfcreader.studio.BuildConfig",
+        };
+        for (String n : names) {
+            try {
+                Class<?> c = Class.forName(n);
+                String vn = (String) c.getField("VERSION_NAME").get(null);
+                int vc = c.getField("VERSION_CODE").getInt(null);
+                if (vn != null) return vn + " (" + vc + ")";
+            } catch (Throwable ignore) {
+                // 换下一个
+            }
         }
+        return "2.0.0";
     }
 }

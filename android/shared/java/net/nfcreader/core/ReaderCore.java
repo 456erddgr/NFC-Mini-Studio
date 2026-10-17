@@ -1,4 +1,4 @@
-package net.nfcreader.minireader;
+package net.nfcreader.core;
 
 import android.content.Context;
 import android.net.wifi.WifiManager;

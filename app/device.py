@@ -286,10 +286,12 @@ class NfcDevice:
             return {
                 "read_block": True, "write_block": True, "find_card": True,
                 "auth": True, "dump": True, "write_uid": True,
-                "crack_device": False, "read_id_card": False,
+                "crack_device": True, "read_id_card": False,
                 "lock_card": False, "key_cache": False,
-                "note": "手机读卡器：NFC 天线能力受限，读不了 125kHz ID 卡；"
-                        "破解请用桌面端 PC 算法",
+                "note": "手机读卡器：能读块/写块/写 UID，也能破解"
+                        "（官方云端密钥库 keygen 候选 + 逐把真机认证）；"
+                        "手机没有 125kHz 天线，读不了 ID 卡，也不支持"
+                        "固件级 0x40/0x41 批量验证与封卡",
             }
         if mode == "ble":
             return {
@@ -626,7 +628,13 @@ class NfcDevice:
         if d[0] != CMD.FIND_CARD:
             raise NfcError(f"寻卡响应命令码不符：0x{d[0]:02X}")
         if len(d) < 3:
-            raise NfcError("寻卡响应过短")
+            # 手机读卡器没插卡时回的是「11 11」（cmd + 状态码 17 = 检测不到卡片），
+            # 固件回的是「11 07」。旧实现先卡长度，把这两种正常应答都报成
+            # 「寻卡响应过短」，用户根本看不出是没放卡。这里先看状态码。
+            status = int(d[1]) if len(d) >= 2 else 0
+            if status:
+                raise NfcError(err_text(status), status)
+            raise NfcError(f"寻卡响应过短（{len(d)} 字节）：{fmt_hex(d)}")
         code = int(d[1])
         if code != 0:
             raise NfcError(err_text(code), code)

@@ -1,4 +1,4 @@
-package net.nfcreader.minireader;
+package net.nfcreader.core;
 
 import java.io.IOException;
 import java.io.InputStream;
@@ -7,6 +7,8 @@ import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.InetAddress;
 import java.net.InetSocketAddress;
+import java.net.InterfaceAddress;
+import java.net.NetworkInterface;
 import java.net.ServerSocket;
 import java.net.Socket;
 import java.nio.charset.StandardCharsets;
@@ -47,6 +49,10 @@ public final class ReaderServer {
     private final List<Socket> clients = new CopyOnWriteArrayList<>();
     private final AtomicInteger activeClients = new AtomicInteger(0);
 
+    private final AtomicInteger frameCount = new AtomicInteger(0);
+    private volatile int lastCmd = -1;
+    private volatile long lastFrameAt = 0L;
+
     private volatile boolean running = false;
     private volatile int port = DEFAULT_TCP_PORT;
     private ServerSocket serverSocket;
@@ -80,6 +86,20 @@ public final class ReaderServer {
 
     public int clientCount() {
         return activeClients.get();
+    }
+
+    /** 累计处理过的协议帧数（诊断用：能区分「网络没通」和「有帧但没卡」）。 */
+    public int frameCount() {
+        return frameCount.get();
+    }
+
+    /** 最近一条命令字，-1 表示还没收到过。 */
+    public int lastCmd() {
+        return lastCmd;
+    }
+
+    public long lastFrameAt() {
+        return lastFrameAt;
     }
 
     public List<String> clientAddresses() {
@@ -202,9 +222,13 @@ public final class ReaderServer {
                     try {
                         reply = engine.dispatch(f.data);
                     } catch (Throwable t) {
-                        reply = Protocol.of(0x00, Protocol.E_NO_CARD);
+                        // 旧版这里回的是 00 17，命令字都不对，桌面端会误判成协议错。
+                        reply = engine.failReply(f.data);
                         log("处理命令异常：" + t);
                     }
+                    frameCount.incrementAndGet();
+                    lastFrameAt = System.currentTimeMillis();
+                    lastCmd = (f.data != null && f.data.length > 0) ? (f.data[0] & 0xFF) : -1;
                     if (reply == null) reply = new byte[0];
                     out.write(Protocol.buildFrame(reply, f.msgid));
                     out.flush();
@@ -235,11 +259,22 @@ public final class ReaderServer {
                     if (ip != null) {
                         String msg = BEACON_MAGIC + " " + DeviceInfo.deviceName() + " " + ip + " " + port;
                         byte[] payload = msg.getBytes(StandardCharsets.UTF_8);
+                        // 全局广播
                         try {
                             DatagramPacket pkt = new DatagramPacket(
                                     payload, payload.length,
                                     InetAddress.getByName("255.255.255.255"), BEACON_PORT);
                             ds.send(pkt);
+                        } catch (Throwable ignore) {
+                        }
+                        // 每块网卡各自的广播地址：USB 共享网络 / 某些路由器下全局广播打不到
+                        try {
+                            for (InterfaceAddress ia : broadcastTargets()) {
+                                InetAddress bc = ia.getBroadcast();
+                                if (bc == null) continue;
+                                DatagramPacket pkt = new DatagramPacket(payload, payload.length, bc, BEACON_PORT);
+                                ds.send(pkt);
+                            }
                         } catch (Throwable ignore) {
                         }
                     }
@@ -258,6 +293,23 @@ public final class ReaderServer {
         }, "nfcm-beacon");
         beaconThread.setDaemon(true);
         beaconThread.start();
+    }
+
+    private static java.util.List<InterfaceAddress> broadcastTargets() {
+        java.util.List<InterfaceAddress> out = new java.util.ArrayList<>();
+        try {
+            java.util.Enumeration<NetworkInterface> en = NetworkInterface.getNetworkInterfaces();
+            while (en != null && en.hasMoreElements()) {
+                NetworkInterface ni = en.nextElement();
+                if (ni == null || !ni.isUp() || ni.isLoopback()) continue;
+                for (InterfaceAddress ia : ni.getInterfaceAddresses()) {
+                    if (ia == null || ia.getBroadcast() == null) continue;
+                    out.add(ia);
+                }
+            }
+        } catch (Throwable ignore) {
+        }
+        return out;
     }
 
     private void stopBeacon() {

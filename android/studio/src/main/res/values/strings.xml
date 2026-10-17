@@ -1,0 +1,47 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">NFC 完整工具箱</string>
+    <string name="app_subtitle">读卡 / 写卡 / 破解 / 卡夹，全在手机上完成</string>
+    <string name="footer_hint">NFC 完整工具箱 · 使用期间请保持本页面在前台，NFC 才能持续读卡</string>
+
+    <!-- 状态胶囊 -->
+    <string name="pill_nfc">NFC：检测中</string>
+    <string name="pill_net">网络：检测中</string>
+    <string name="pill_card">卡片：无</string>
+
+    <!-- 读卡服务 -->
+    <string name="sec_service">读卡服务</string>
+    <string name="service_stopped">未启动</string>
+    <string name="start_service">启动服务</string>
+    <string name="clients_none">0 个电脑连接</string>
+    <string name="open_nfc">去开启 NFC</string>
+    <string name="reprobe">重新检测</string>
+
+    <!-- 本机读卡 -->
+    <string name="sec_card">本机读卡</string>
+    <string name="sec_card_hint">不连电脑也能用：贴卡即可读 UID 与扇区数据</string>
+    <string name="card_uid_placeholder">把卡贴到手机背面 NFC 区域…</string>
+    <string name="btn_read_info">读取卡片信息</string>
+    <string name="btn_read_sector">读扇区</string>
+    <string name="btn_copy_uid">复制 UID</string>
+
+    <!-- 背景与外观 -->
+    <string name="sec_wallpaper">背景与外观</string>
+    <string name="blur_label">背景模糊 18</string>
+    <string name="btn_pick_wallpaper">从相册选择背景</string>
+    <string name="sw_glass">液态玻璃效果</string>
+    <string name="sw_light">浅色主题</string>
+
+    <!-- 设置 -->
+    <string name="sec_settings">设置</string>
+    <string name="sw_keep_screen">保持屏幕常亮</string>
+    <string name="sw_vibrate">读卡震动反馈</string>
+    <string name="sw_autostart">打开应用时自动启动服务</string>
+    <string name="port_hint">TCP 端口（1024-65535）</string>
+    <string name="btn_apply_port">应用</string>
+
+    <!-- 日志 -->
+    <string name="sec_log">运行日志</string>
+    <string name="btn_copy_log">复制</string>
+    <string name="btn_clear_log">清空</string>
+</resources>

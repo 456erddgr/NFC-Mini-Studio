@@ -1,4 +1,4 @@
-package net.nfcreader.minireader;
+package net.nfcreader.core;
 
 import java.io.ByteArrayOutputStream;
 import java.util.ArrayList;

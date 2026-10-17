@@ -955,6 +955,23 @@ const CAP_LABELS = {
   lock_card: '封卡锁卡', key_cache: '密钥表缓存',
 };
 
+/* 启动时自动连手机读卡器：能连就静默连上，没找到不打扰用户 */
+async function autoConnectPhone() {
+  try {
+    const res = await api('auto_connect_phone');
+    if (!res) return null;
+    if (res.ok && res.address) {
+      log(res.note || ('已自动连接手机读卡器 ' + res.address), 'ok');
+      await applyCapabilities();
+    } else if (res.note) {
+      log(res.note, 'warn');
+    }
+    return res;
+  } catch (e) {
+    return null;
+  }
+}
+
 async function applyCapabilities() {
   let caps = null;
   try { caps = await api('capabilities'); } catch (e) { return null; }
@@ -2905,6 +2922,8 @@ async function init() {
   renderTokenGuide();
   // 启动时自动校验云端 token：失效会弹窗征求同意，同意后打开微信小程序自动续期
   autoCheckCloudToken();
+  // 启动时自动发现并连接手机读卡器（有就静默连上，没有只记日志）
+  autoConnectPhone();
 }
 
 let __booted = false;
